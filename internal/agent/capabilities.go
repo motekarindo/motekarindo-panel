@@ -11,10 +11,7 @@ type Capabilities struct {
 
 func DefaultCapabilities() Capabilities {
 	return Capabilities{
-		Actions: []string{
-			"agent.health",
-			"agent.capabilities",
-		},
+		Actions: DefaultRegistry().Actions(),
 	}
 }
 

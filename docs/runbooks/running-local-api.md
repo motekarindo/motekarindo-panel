@@ -173,6 +173,7 @@ Available endpoints:
 | `GET` | `/healthz` | Agent liveness check |
 | `GET` | `/capabilities` | Current allowlisted agent capabilities |
 | `GET` | `/version` | Build/version metadata |
+| `POST` | `/actions/{name}` | Execute an allowlisted agent action |
 
 Example:
 
@@ -185,6 +186,28 @@ Expected response:
 ```json
 {"actions":["agent.health","agent.capabilities"]}
 ```
+
+Execute an allowlisted health action:
+
+```bash
+curl -X POST http://127.0.0.1:9090/actions/agent.health \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{}}'
+```
+
+Expected response:
+
+```json
+{
+  "action": "agent.health",
+  "status": "ok",
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+Unknown actions return `404` with `UNKNOWN_ACTION`. This is intentional: future privileged server operations must be explicitly registered in the agent action registry.
 
 ## Agent Environment Variables
 
