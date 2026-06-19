@@ -346,15 +346,20 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Implement OS detection that accepts Ubuntu 24.04 LTS and rejects unsupported systems.
 
+**Status:** Safe parser/checker completed with fixture unit tests. Installer integration pending.
+
 **Acceptance criteria:**
 
-- [ ] Ubuntu 24.04 LTS is detected as supported.
-- [ ] Non-Ubuntu systems are rejected in first installer release.
-- [ ] Error message mentions planned Debian/RHEL support.
+- [x] Ubuntu 24.04 LTS is detected as supported.
+- [x] Non-Ubuntu systems are rejected in first installer release.
+- [x] Error message mentions planned Debian/RHEL support.
+- [ ] Installer command uses this detector during preflight.
 
 **Verification:**
 
-- [ ] Unit tests with fixture `/etc/os-release` content.
+- [x] Unit tests with fixture `/etc/os-release` content.
+- [x] `make test` passes.
+- [x] `make build` passes.
 
 **Dependencies:** Phase 1.
 
