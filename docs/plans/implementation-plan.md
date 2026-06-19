@@ -100,17 +100,23 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add database connection loading, migration runner, and initial schema for users, sessions, roles, permissions, audit events, jobs, servers, and settings.
 
+**Status:** Safe code foundation completed. Live PostgreSQL smoke verification is pending on a disposable database/VPS.
+
 **Acceptance criteria:**
 
-- [ ] Panel can connect to PostgreSQL.
-- [ ] Migrations can run idempotently.
-- [ ] Initial tables exist.
-- [ ] Immutable server settings table can store selected web server.
+- [x] Panel has code path to connect to PostgreSQL through `MOTEKAR_DATABASE_URL`.
+- [x] Migrations can run idempotently through `schema_migrations`.
+- [x] Initial tables are defined in SQL.
+- [x] Immutable server settings table can store selected web server.
+- [ ] Live PostgreSQL smoke test confirms schema applies on a disposable database.
 
 **Verification:**
 
-- [ ] Migration tests pass against a local PostgreSQL database.
-- [ ] Schema smoke test inserts and reads core records.
+- [x] Migration runner unit tests pass without touching host services.
+- [x] `make test` passes.
+- [x] `make build` passes.
+- [ ] Migration tests pass against a disposable PostgreSQL database.
+- [ ] Schema smoke test inserts and reads core records on a disposable PostgreSQL database.
 
 **Dependencies:** Phase 0.
 

@@ -16,14 +16,18 @@ func TestLoadPanelDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
 	}
+	if cfg.MigrationsDir != "services/migrations" {
+		t.Fatalf("MigrationsDir = %q, want services/migrations", cfg.MigrationsDir)
+	}
 }
 
 func TestLoadPanelOverrides(t *testing.T) {
 	values := map[string]string{
-		"MOTEKAR_PANEL_ADDR":   "127.0.0.1:8088",
-		"MOTEKAR_DATABASE_URL": "postgres://panel",
-		"MOTEKAR_ENV":          "test",
-		"MOTEKAR_LOG_LEVEL":    "debug",
+		"MOTEKAR_PANEL_ADDR":     "127.0.0.1:8088",
+		"MOTEKAR_DATABASE_URL":   "postgres://panel",
+		"MOTEKAR_MIGRATIONS_DIR": "/tmp/migrations",
+		"MOTEKAR_ENV":            "test",
+		"MOTEKAR_LOG_LEVEL":      "debug",
 	}
 	cfg, err := loadPanel(func(key string) string { return values[key] })
 	if err != nil {
@@ -34,6 +38,9 @@ func TestLoadPanelOverrides(t *testing.T) {
 	}
 	if cfg.DatabaseURL != "postgres://panel" {
 		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	}
+	if cfg.MigrationsDir != "/tmp/migrations" {
+		t.Fatalf("MigrationsDir = %q", cfg.MigrationsDir)
 	}
 }
 

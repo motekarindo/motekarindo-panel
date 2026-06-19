@@ -113,8 +113,38 @@ Expected response shape:
 |---|---:|---|
 | `MOTEKAR_PANEL_ADDR` | `:8080` | Panel API listen address |
 | `MOTEKAR_DATABASE_URL` | empty | Future PostgreSQL connection string |
+| `MOTEKAR_MIGRATIONS_DIR` | `services/migrations` | SQL migration directory |
 | `MOTEKAR_ENV` | `development` | Runtime environment label |
 | `MOTEKAR_LOG_LEVEL` | `info` | Structured log level |
+
+## Database Migrations
+
+The panel now includes a PostgreSQL migration runner and an initial core schema.
+
+Run migrations with:
+
+```bash
+MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslmode=disable" \
+  GOCACHE="$(pwd)/.cache/go-build" \
+  go run ./cmd/motekar-panel migrate up
+```
+
+Or with a custom migrations directory:
+
+```bash
+MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslmode=disable" \
+  MOTEKAR_MIGRATIONS_DIR="services/migrations" \
+  GOCACHE="$(pwd)/.cache/go-build" \
+  go run ./cmd/motekar-panel migrate up
+```
+
+Current migration files:
+
+- `services/migrations/000001_initial_core.sql`
+
+The migration runner records applied versions in `schema_migrations`.
+
+Do not run database migrations against a production or important database until backup and restore procedures exist. For now, run them only against a disposable local database or a test VPS database.
 
 ## Agent API
 
@@ -215,4 +245,3 @@ For the agent:
 ```bash
 GOCACHE="$(pwd)/.cache/go-build" MOTEKAR_AGENT_ADDR=127.0.0.1:19090 go run ./cmd/motekar-agent serve
 ```
-

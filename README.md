@@ -40,3 +40,12 @@ curl http://127.0.0.1:8080/version
 
 For detailed local API and agent instructions, see [docs/runbooks/running-local-api.md](docs/runbooks/running-local-api.md).
 
+## Database Migrations
+
+The current migration runner targets PostgreSQL. Use a disposable development database:
+
+```bash
+MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslmode=disable" \
+  GOCACHE="$(pwd)/.cache/go-build" \
+  go run ./cmd/motekar-panel migrate up
+```

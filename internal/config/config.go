@@ -7,10 +7,11 @@ import (
 )
 
 type PanelConfig struct {
-	HTTPAddr    string
-	DatabaseURL string
-	Environment string
-	LogLevel    string
+	HTTPAddr      string
+	DatabaseURL   string
+	MigrationsDir string
+	Environment   string
+	LogLevel      string
 }
 
 type AgentConfig struct {
@@ -29,14 +30,18 @@ func LoadAgent() (AgentConfig, error) {
 
 func loadPanel(getenv func(string) string) (PanelConfig, error) {
 	cfg := PanelConfig{
-		HTTPAddr:    value(getenv, "MOTEKAR_PANEL_ADDR", ":8080"),
-		DatabaseURL: strings.TrimSpace(getenv("MOTEKAR_DATABASE_URL")),
-		Environment: value(getenv, "MOTEKAR_ENV", "development"),
-		LogLevel:    value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
+		HTTPAddr:      value(getenv, "MOTEKAR_PANEL_ADDR", ":8080"),
+		DatabaseURL:   strings.TrimSpace(getenv("MOTEKAR_DATABASE_URL")),
+		MigrationsDir: value(getenv, "MOTEKAR_MIGRATIONS_DIR", "services/migrations"),
+		Environment:   value(getenv, "MOTEKAR_ENV", "development"),
+		LogLevel:      value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
 	}
 
 	if cfg.HTTPAddr == "" {
 		return PanelConfig{}, errors.New("MOTEKAR_PANEL_ADDR cannot be empty")
+	}
+	if cfg.MigrationsDir == "" {
+		return PanelConfig{}, errors.New("MOTEKAR_MIGRATIONS_DIR cannot be empty")
 	}
 	return cfg, nil
 }
