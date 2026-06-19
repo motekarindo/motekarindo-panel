@@ -1,0 +1,62 @@
+package config
+
+import (
+	"errors"
+	"os"
+	"strings"
+)
+
+type PanelConfig struct {
+	HTTPAddr    string
+	DatabaseURL string
+	Environment string
+	LogLevel    string
+}
+
+type AgentConfig struct {
+	HTTPAddr    string
+	Environment string
+	LogLevel    string
+}
+
+func LoadPanel() (PanelConfig, error) {
+	return loadPanel(os.Getenv)
+}
+
+func LoadAgent() (AgentConfig, error) {
+	return loadAgent(os.Getenv)
+}
+
+func loadPanel(getenv func(string) string) (PanelConfig, error) {
+	cfg := PanelConfig{
+		HTTPAddr:    value(getenv, "MOTEKAR_PANEL_ADDR", ":8080"),
+		DatabaseURL: strings.TrimSpace(getenv("MOTEKAR_DATABASE_URL")),
+		Environment: value(getenv, "MOTEKAR_ENV", "development"),
+		LogLevel:    value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
+	}
+
+	if cfg.HTTPAddr == "" {
+		return PanelConfig{}, errors.New("MOTEKAR_PANEL_ADDR cannot be empty")
+	}
+	return cfg, nil
+}
+
+func loadAgent(getenv func(string) string) (AgentConfig, error) {
+	cfg := AgentConfig{
+		HTTPAddr:    value(getenv, "MOTEKAR_AGENT_ADDR", "127.0.0.1:9090"),
+		Environment: value(getenv, "MOTEKAR_ENV", "development"),
+		LogLevel:    value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
+	}
+
+	if cfg.HTTPAddr == "" {
+		return AgentConfig{}, errors.New("MOTEKAR_AGENT_ADDR cannot be empty")
+	}
+	return cfg, nil
+}
+
+func value(getenv func(string) string, key, fallback string) string {
+	if v := strings.TrimSpace(getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
