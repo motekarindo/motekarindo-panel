@@ -382,7 +382,7 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Ubuntu 24.04 LTS is detected as supported.
 - [x] Non-Ubuntu systems are rejected in first installer release.
 - [x] Error message mentions planned Debian/RHEL support.
-- [ ] Installer command uses this detector during preflight.
+- [x] Installer command uses this detector during preflight.
 
 **Verification:**
 
@@ -398,7 +398,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add checks for CPU, RAM, disk, swap, root privileges, systemd, ports, and PostgreSQL availability/install plan.
 
-**Status:** Host-safe profile-aware preflight logic completed with fixture-style facts. Real host collector and VPS manual verification are pending.
+**Status:** Host-safe profile-aware preflight logic and real read-only collector completed. VPS manual verification is pending.
 
 **Acceptance criteria:**
 
@@ -408,7 +408,8 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Shared-hosting profile still blocks 1 GB RAM.
 - [x] Unsafe install state blocks installation.
 - [x] Host-safe sample CLI exists.
-- [ ] Real installer collector gathers facts on disposable Ubuntu 24.04 VPS.
+- [x] Real installer collector gathers OS, CPU, RAM, disk, swap, root, systemd, and port facts.
+- [ ] Real installer collector is verified on disposable Ubuntu 24.04 VPS.
 
 **Verification:**
 
@@ -416,6 +417,7 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] `make test` passes.
 - [x] `make build` passes.
 - [x] `motekarctl preflight sample` reports all sample checks as pass.
+- [x] Unit tests cover collector fixture parsing and CLI preflight behavior.
 - [ ] Manual test on Ubuntu 24.04 environment.
 
 **Dependencies:** Task 4.1.

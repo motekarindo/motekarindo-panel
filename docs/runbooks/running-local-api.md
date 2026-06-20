@@ -268,6 +268,20 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight sample
 
 This command uses hardcoded sample facts for Ubuntu 24.04 LTS. It does not inspect or modify the host machine.
 
+Run the real read-only preflight collector:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight --profile shared-hosting --postgresql install
+```
+
+For a 1 GB personal VPS, use the single-user profile:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight --profile single-user --postgresql install
+```
+
+The real collector reads OS release, CPU, RAM, swap, disk, root status, systemd status, and port availability. It does not install packages, edit files, create users, or start/stop services.
+
 ## Troubleshooting
 
 ### `operation not permitted` when running Go commands

@@ -1,8 +1,10 @@
 package preflight
 
 import (
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/motekar/motekar-panel/internal/osdetect"
 )
@@ -25,6 +27,19 @@ const (
 	ProfileSingleUser    InstallProfile = "single-user"
 )
 
+var ErrUnsupportedProfile = errors.New("unsupported install profile")
+
+func ParseInstallProfile(value string) (InstallProfile, error) {
+	switch InstallProfile(strings.ToLower(strings.TrimSpace(value))) {
+	case "", ProfileSharedHosting:
+		return ProfileSharedHosting, nil
+	case ProfileSingleUser:
+		return ProfileSingleUser, nil
+	default:
+		return "", ErrUnsupportedProfile
+	}
+}
+
 type PostgreSQLPlan string
 
 const (
@@ -32,6 +47,19 @@ const (
 	PostgreSQLPlanInstall  PostgreSQLPlan = "install"
 	PostgreSQLPlanUnknown  PostgreSQLPlan = ""
 )
+
+var ErrUnsupportedPostgreSQLPlan = errors.New("unsupported PostgreSQL plan")
+
+func ParsePostgreSQLPlan(value string) (PostgreSQLPlan, error) {
+	switch PostgreSQLPlan(strings.ToLower(strings.TrimSpace(value))) {
+	case PostgreSQLPlanInstall:
+		return PostgreSQLPlanInstall, nil
+	case PostgreSQLPlanExternal:
+		return PostgreSQLPlanExternal, nil
+	default:
+		return PostgreSQLPlanUnknown, ErrUnsupportedPostgreSQLPlan
+	}
+}
 
 type SystemFacts struct {
 	OS             osdetect.OSRelease
