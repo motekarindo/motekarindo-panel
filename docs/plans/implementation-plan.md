@@ -262,14 +262,18 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add a standard audit writer and audit listing API/UI.
 
+**Status:** Audit writer and SQL store foundation completed. Wiring security-sensitive actions and listing API/UI are pending.
+
 **Acceptance criteria:**
 
+- [x] Audit writer can persist security-sensitive event records.
+- [x] Audit event includes actor, action, target, IP, user agent, metadata, and timestamp.
 - [ ] Security-sensitive actions create audit events.
-- [ ] Audit event includes actor, action, target, IP, user agent, and timestamp.
 - [ ] Admin can view recent audit events.
 
 **Verification:**
 
+- [x] Unit tests verify audit validation and write behavior without touching PostgreSQL.
 - [ ] Integration tests verify audit events are written.
 
 **Dependencies:** Task 2.3.
