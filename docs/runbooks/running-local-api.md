@@ -243,6 +243,14 @@ Show agent capabilities without running the agent HTTP server:
 GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekar-agent capabilities
 ```
 
+Run a host-safe sample preflight report:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight sample
+```
+
+This command uses hardcoded sample facts for Ubuntu 24.04 LTS. It does not inspect or modify the host machine.
+
 ## Troubleshooting
 
 ### `operation not permitted` when running Go commands

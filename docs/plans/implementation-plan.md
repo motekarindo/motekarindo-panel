@@ -375,15 +375,22 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add checks for CPU, RAM, disk, swap, root privileges, systemd, ports, and PostgreSQL availability/install plan.
 
+**Status:** Host-safe preflight logic completed with fixture-style facts. Real host collector and VPS manual verification are pending.
+
 **Acceptance criteria:**
 
-- [ ] Installer reports pass/fail for each requirement.
-- [ ] Minimum server requirements match spec.
-- [ ] Unsafe install state blocks installation.
+- [x] Preflight reports pass/fail for each requirement.
+- [x] Minimum server requirements match spec.
+- [x] Unsafe install state blocks installation.
+- [x] Host-safe sample CLI exists.
+- [ ] Real installer collector gathers facts on disposable Ubuntu 24.04 VPS.
 
 **Verification:**
 
-- [ ] Unit tests for check logic.
+- [x] Unit tests for check logic.
+- [x] `make test` passes.
+- [x] `make build` passes.
+- [x] `motekarctl preflight sample` reports all sample checks as pass.
 - [ ] Manual test on Ubuntu 24.04 environment.
 
 **Dependencies:** Task 4.1.

@@ -1,4 +1,4 @@
 .cache/
-motekar-agent
-motekar-panel
-motekarctl
+/motekar-agent
+/motekar-panel
+/motekarctl
