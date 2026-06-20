@@ -192,7 +192,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add CLI or installer bootstrap for creating the first owner/admin user.
 
-**Status:** Password hashing, input validation, one-time bootstrap policy, SQL store foundation, and CLI wiring completed. Role seeding, audit event, and live PostgreSQL verification are pending.
+**Status:** Password hashing, input validation, one-time bootstrap policy, SQL store foundation, CLI wiring, and owner role assignment completed. Audit event and live PostgreSQL verification are pending.
 
 **Acceptance criteria:**
 
@@ -200,7 +200,7 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Password is hashed with a strong algorithm.
 - [x] Bootstrap input validates email, display name, and minimum password length.
 - [x] Bootstrap command wires service to the panel database.
-- [ ] Owner/admin role is assigned.
+- [x] Owner/admin role is assigned.
 - [ ] Duplicate bootstrap is rejected.
 - [ ] Audit event is recorded.
 
@@ -238,15 +238,21 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add roles, permissions, and resource authorization helpers.
 
+**Status:** Default roles, permissions, authorization helper, and idempotent RBAC seed migration completed. Handler middleware and resource ownership checks are pending.
+
 **Acceptance criteria:**
 
-- [ ] Owner/admin roles are seeded.
-- [ ] Permission checks can guard handlers and services.
+- [x] Owner/admin roles are seeded.
+- [x] Permission checks can guard services.
+- [x] Reseller/customer roles are reserved in the initial permission model.
+- [ ] Permission checks can guard HTTP handlers.
+- [ ] Resource ownership checks are implemented for account-owned resources.
 - [ ] Unauthorized actions return structured errors.
 
 **Verification:**
 
-- [ ] Unit tests cover allow, deny, and missing permission.
+- [x] Unit tests cover allow, deny, and missing role.
+- [ ] Integration test confirms RBAC seed migration on disposable PostgreSQL.
 
 **Dependencies:** Task 2.2.
 

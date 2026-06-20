@@ -141,6 +141,7 @@ MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslm
 Current migration files:
 
 - `services/migrations/000001_initial_core.sql`
+- `services/migrations/000002_seed_rbac.sql`
 
 The migration runner records applied versions in `schema_migrations`.
 
@@ -160,7 +161,7 @@ printf '%s\n' 'change-this-long-password' | \
     --password-stdin
 ```
 
-The password is read from stdin so it does not need to be passed as a command argument. Do not run this against a production database until the bootstrap flow includes role assignment, audit events, and backup/restore procedures.
+The password is read from stdin so it does not need to be passed as a command argument. The bootstrap command assigns the first admin to the seeded `owner` role. Do not run this against a production database until the bootstrap flow includes audit events and backup/restore procedures.
 
 ## Agent API
 
