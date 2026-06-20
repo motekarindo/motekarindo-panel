@@ -303,6 +303,42 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl install plan \
 
 The install plan command is dry-run only. It prints actions that would change the host later, but it does not execute them.
 
+## Installer Bootstrapper
+
+The end-user installer should not require cloning the full repository. The first bootstrapper is:
+
+```text
+installers/install-ubuntu-24.04-amd64.sh
+```
+
+Current behavior:
+
+- Dry-run only.
+- Validates Ubuntu 24.04 amd64 unless `--skip-os-check` is used for automated tests.
+- Downloads `motekarctl` from GitHub Releases by default, or uses `--local-binary`.
+- Runs `motekarctl preflight`.
+- Runs `motekarctl install plan`.
+- Refuses `--apply` until actual install support exists.
+
+Development test with a local binary on a disposable Ubuntu 24.04 VPS:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go build -o .cache/motekarctl ./cmd/motekarctl
+installers/install-ubuntu-24.04-amd64.sh --dry-run \
+  --skip-os-check \
+  --skip-root-check \
+  --local-binary .cache/motekarctl \
+  --profile shared-hosting \
+  --web-server nginx \
+  --postgresql install
+```
+
+Installer script checks:
+
+```bash
+make test-installers
+```
+
 ## Troubleshooting
 
 ### `operation not permitted` when running Go commands

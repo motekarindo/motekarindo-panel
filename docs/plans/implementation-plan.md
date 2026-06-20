@@ -371,6 +371,30 @@ After that foundation is stable, product features can be added as vertical slice
 
 ## Phase 4: Ubuntu 24.04 Installer and Server Inventory
 
+### Task 4.0: Installer Bootstrapper
+
+**Description:** Add end-user Bash bootstrapper so operators can run preflight and dry-run without cloning the repository.
+
+**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper completed. Release artifact publishing and actual apply mode are pending.
+
+**Acceptance criteria:**
+
+- [x] End user can run an installer script without cloning the repository.
+- [x] Script validates Ubuntu 24.04 amd64 target.
+- [x] Script supports `single-user` and `shared-hosting` profiles.
+- [x] Script supports Nginx/Apache immutable web server selection.
+- [x] Script runs preflight and install plan through `motekarctl`.
+- [x] Script refuses `--apply` until actual install support exists.
+- [ ] Release process publishes the script and `motekarctl-linux-amd64`.
+- [ ] Script verifies release checksums by default once checksums exist.
+
+**Verification:**
+
+- [x] `make test-installers` passes with fake `motekarctl`.
+- [ ] Manual test downloads script from GitHub Releases on disposable Ubuntu 24.04 VPS.
+
+**Dependencies:** Task 4.2.
+
 ### Task 4.1: OS Detection
 
 **Description:** Implement OS detection that accepts Ubuntu 24.04 LTS and rejects unsupported systems.

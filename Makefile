@@ -1,13 +1,16 @@
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOENV := GOCACHE=$(GOCACHE)
 
-.PHONY: build test test-system fmt fmt-check dev
+.PHONY: build test test-installers test-system fmt fmt-check dev
 
 build:
 	$(GOENV) go build ./cmd/motekar-panel ./cmd/motekar-agent ./cmd/motekarctl
 
 test:
 	$(GOENV) go test ./...
+
+test-installers:
+	tests/installers/test-installers.sh
 
 test-system:
 	@if [ "$(MOTEKAR_TEST_ALLOW_SYSTEM)" != "1" ]; then \
