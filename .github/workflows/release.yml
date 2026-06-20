@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release, for example v0.1.0-alpha.1
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release Artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: make fmt-check
+
+      - name: Test
+        run: make test
+
+      - name: Test installers
+        run: make test-installers
+
+      - name: Build release artifacts
+        run: make release-artifacts
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --notes "Motekar Panel release $RELEASE_TAG"

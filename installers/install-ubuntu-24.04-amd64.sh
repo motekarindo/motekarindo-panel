@@ -15,6 +15,7 @@ mode="dry-run"
 local_binary=""
 download_url=""
 checksum_url=""
+verify_checksum="1"
 skip_os_check="0"
 skip_root_check="0"
 
@@ -33,7 +34,8 @@ Options:
   --postgresql VALUE         PostgreSQL plan: install or external. Default: ${DEFAULT_POSTGRESQL}
   --local-binary PATH        Use an existing motekarctl binary instead of downloading one.
   --download-url URL         Download motekarctl from this URL.
-  --checksum-url URL         Optional sha256 checksum URL for downloaded motekarctl.
+  --checksum-url URL         sha256 checksum URL for downloaded motekarctl.
+  --no-checksum              Skip checksum verification. Intended only for development/custom mirrors.
   --skip-os-check            Skip OS/architecture validation. Intended only for automated tests.
   --skip-root-check          Skip root validation. Intended only for automated tests.
   -h, --help                 Show this help.
@@ -92,6 +94,10 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || fail "--checksum-url requires a value"
       checksum_url="$2"
       shift 2
+      ;;
+    --no-checksum)
+      verify_checksum="0"
+      shift
       ;;
     --skip-os-check)
       skip_os_check="1"
@@ -163,11 +169,14 @@ else
   if [ -z "$download_url" ]; then
     download_url="${DEFAULT_RELEASE_BASE_URL}/${DEFAULT_BINARY_NAME}"
   fi
+  if [ -z "$checksum_url" ]; then
+    checksum_url="${download_url}.sha256"
+  fi
   log "downloading motekarctl from ${download_url}"
   curl -fsSL "$download_url" -o "$motekarctl_path"
   chmod 0755 "$motekarctl_path"
 
-  if [ -n "$checksum_url" ]; then
+  if [ "$verify_checksum" = "1" ]; then
     command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required for checksum verification"
     log "verifying motekarctl checksum from ${checksum_url}"
     curl -fsSL "$checksum_url" -o "${tmp_dir}/motekarctl.sha256"
@@ -178,7 +187,7 @@ else
       printf '%s  motekarctl\n' "$expected_checksum" | sha256sum -c -
     )
   else
-    log "checksum verification skipped; pass --checksum-url when release checksums are available"
+    log "checksum verification skipped by explicit --no-checksum"
   fi
 fi
 

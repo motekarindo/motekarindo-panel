@@ -1,16 +1,22 @@
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOENV := GOCACHE=$(GOCACHE)
 
-.PHONY: build test test-installers test-system fmt fmt-check dev
+.PHONY: build release-artifacts test test-installers test-release-artifacts test-system fmt fmt-check dev
 
 build:
 	$(GOENV) go build ./cmd/motekar-panel ./cmd/motekar-agent ./cmd/motekarctl
+
+release-artifacts:
+	$(GOENV) scripts/build-release.sh
 
 test:
 	$(GOENV) go test ./...
 
 test-installers:
 	tests/installers/test-installers.sh
+
+test-release-artifacts:
+	tests/release/test-release-artifacts.sh
 
 test-system:
 	@if [ "$(MOTEKAR_TEST_ALLOW_SYSTEM)" != "1" ]; then \

@@ -375,7 +375,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add end-user Bash bootstrapper so operators can run preflight and dry-run without cloning the repository.
 
-**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper completed. Release artifact publishing and actual apply mode are pending.
+**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper and release artifact pipeline completed. Actual apply mode is pending.
 
 **Acceptance criteria:**
 
@@ -385,12 +385,14 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Script supports Nginx/Apache immutable web server selection.
 - [x] Script runs preflight and install plan through `motekarctl`.
 - [x] Script refuses `--apply` until actual install support exists.
-- [ ] Release process publishes the script and `motekarctl-linux-amd64`.
-- [ ] Script verifies release checksums by default once checksums exist.
+- [x] Release process publishes the script and `motekarctl-linux-amd64`.
+- [x] Script verifies release checksums by default.
+- [x] Release process publishes `motekar-panel-linux-amd64` and `motekar-agent-linux-amd64`.
 
 **Verification:**
 
 - [x] `make test-installers` passes with fake `motekarctl`.
+- [x] `make test-release-artifacts` passes and verifies checksums.
 - [ ] Manual test downloads script from GitHub Releases on disposable Ubuntu 24.04 VPS.
 
 **Dependencies:** Task 4.2.

@@ -30,5 +30,8 @@ jobs:
       - name: Test installers
         run: make test-installers
 
+      - name: Test release artifacts
+        run: make test-release-artifacts
+
       - name: Build
         run: make build

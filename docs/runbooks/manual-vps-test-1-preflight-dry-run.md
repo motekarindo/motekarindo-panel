@@ -46,6 +46,8 @@ Run dry-run for shared hosting:
   --postgresql install
 ```
 
+The script downloads `motekarctl-linux-amd64` from GitHub Releases and verifies its `.sha256` checksum by default.
+
 Run dry-run for a 1 GB personal VPS:
 
 ```bash

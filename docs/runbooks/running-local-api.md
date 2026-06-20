@@ -316,6 +316,7 @@ Current behavior:
 - Dry-run only.
 - Validates Ubuntu 24.04 amd64 unless `--skip-os-check` is used for automated tests.
 - Downloads `motekarctl` from GitHub Releases by default, or uses `--local-binary`.
+- Verifies the downloaded `motekarctl` checksum by default.
 - Runs `motekarctl preflight`.
 - Runs `motekarctl install plan`.
 - Refuses `--apply` until actual install support exists.
