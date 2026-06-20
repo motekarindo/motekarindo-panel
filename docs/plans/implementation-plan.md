@@ -383,12 +383,14 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add checks for CPU, RAM, disk, swap, root privileges, systemd, ports, and PostgreSQL availability/install plan.
 
-**Status:** Host-safe preflight logic completed with fixture-style facts. Real host collector and VPS manual verification are pending.
+**Status:** Host-safe profile-aware preflight logic completed with fixture-style facts. Real host collector and VPS manual verification are pending.
 
 **Acceptance criteria:**
 
 - [x] Preflight reports pass/fail for each requirement.
 - [x] Minimum server requirements match spec.
+- [x] Single-user profile allows 1 GB RAM with warning and stronger swap requirement.
+- [x] Shared-hosting profile still blocks 1 GB RAM.
 - [x] Unsafe install state blocks installation.
 - [x] Host-safe sample CLI exists.
 - [ ] Real installer collector gathers facts on disposable Ubuntu 24.04 VPS.

@@ -39,15 +39,26 @@ Owner: Motekar Teknologi Indonesia.
 
 ## Minimum Server Requirements
 
-The product must be designed for low-resource VPS deployments.
+The product must be designed for low-resource VPS deployments, but 1 GB RAM is only acceptable for a single-user/personal VPS profile. It is not an acceptable baseline for shared hosting.
 
-Minimum supported single-server profile:
+Minimum supported single-user profile:
+
+- 1 vCPU.
+- 1 GB RAM.
+- 20 GB disk.
+- 2 GB swap.
+- Ubuntu 24.04 LTS.
+- Intended for one owner, low traffic, and limited enabled services.
+- Email hosting should warn or be disabled by default on this profile unless the operator accepts the resource risk.
+
+Minimum supported shared-hosting profile:
 
 - 1 vCPU.
 - 2 GB RAM.
 - 20 GB disk.
 - 1 GB swap.
 - Ubuntu 24.04 LTS.
+- Intended for multi-account hosting with packages, quotas, and account isolation.
 
 Recommended single-server profile for production with web, database, DNS, and mail enabled:
 

@@ -8,10 +8,21 @@ import (
 )
 
 const (
-	MinimumCPUCores = 1
-	MinimumRAMMB    = 2048
-	MinimumDiskGB   = 20
-	MinimumSwapMB   = 1024
+	MinimumCPUCores             = 1
+	MinimumSingleUserRAMMB      = 1024
+	MinimumSharedHostingRAMMB   = 2048
+	MinimumDiskGB               = 20
+	MinimumSingleUserSwapMB     = 2048
+	MinimumSharedHostingSwapMB  = 1024
+	RecommendedSingleUserRAMMB  = 2048
+	RecommendedSingleUserSwapMB = 2048
+)
+
+type InstallProfile string
+
+const (
+	ProfileSharedHosting InstallProfile = "shared-hosting"
+	ProfileSingleUser    InstallProfile = "single-user"
 )
 
 type PostgreSQLPlan string
@@ -24,6 +35,7 @@ const (
 
 type SystemFacts struct {
 	OS             osdetect.OSRelease
+	Profile        InstallProfile
 	CPUCores       int
 	RAMMB          int
 	DiskGB         int
@@ -68,12 +80,13 @@ func (r Report) Ready() bool {
 }
 
 func Run(facts SystemFacts) Report {
+	profile := normalizeProfile(facts.Profile)
 	checks := []Check{
 		checkOS(facts.OS),
 		minimum("cpu", facts.CPUCores, MinimumCPUCores, "core(s)"),
-		minimum("memory", facts.RAMMB, MinimumRAMMB, "MB RAM"),
+		checkMemory(profile, facts.RAMMB),
 		minimum("disk", facts.DiskGB, MinimumDiskGB, "GB disk"),
-		minimum("swap", facts.SwapMB, MinimumSwapMB, "MB swap"),
+		checkSwap(profile, facts.SwapMB),
 		boolean("root", facts.IsRoot, "installer must run as root"),
 		boolean("systemd", facts.HasSystemd, "systemd is required"),
 		checkPostgreSQLPlan(facts.PostgreSQLPlan),
@@ -90,6 +103,40 @@ func Run(facts SystemFacts) Report {
 	}
 
 	return Report{Checks: checks}
+}
+
+func normalizeProfile(profile InstallProfile) InstallProfile {
+	switch profile {
+	case ProfileSingleUser:
+		return ProfileSingleUser
+	default:
+		return ProfileSharedHosting
+	}
+}
+
+func checkMemory(profile InstallProfile, got int) Check {
+	if profile == ProfileSingleUser {
+		if got < MinimumSingleUserRAMMB {
+			return minimum("memory", got, MinimumSingleUserRAMMB, "MB RAM")
+		}
+		if got < RecommendedSingleUserRAMMB {
+			return Check{
+				Name:     "memory",
+				Status:   CheckWarn,
+				Message:  fmt.Sprintf("single-user profile can run with %d MB RAM, but %d MB RAM is recommended; detected %d", MinimumSingleUserRAMMB, RecommendedSingleUserRAMMB, got),
+				Blocking: false,
+			}
+		}
+		return minimum("memory", got, MinimumSingleUserRAMMB, "MB RAM")
+	}
+	return minimum("memory", got, MinimumSharedHostingRAMMB, "MB RAM")
+}
+
+func checkSwap(profile InstallProfile, got int) Check {
+	if profile == ProfileSingleUser {
+		return minimum("swap", got, MinimumSingleUserSwapMB, "MB swap")
+	}
+	return minimum("swap", got, MinimumSharedHostingSwapMB, "MB swap")
 }
 
 func checkOS(release osdetect.OSRelease) Check {

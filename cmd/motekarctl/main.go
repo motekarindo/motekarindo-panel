@@ -40,10 +40,11 @@ func preflightCommand(args []string) error {
 
 	report := preflight.Run(preflight.SystemFacts{
 		OS:             osdetect.OSRelease{ID: "ubuntu", VersionID: "24.04", Name: "Ubuntu 24.04 LTS"},
+		Profile:        preflight.ProfileSharedHosting,
 		CPUCores:       preflight.MinimumCPUCores,
-		RAMMB:          preflight.MinimumRAMMB,
+		RAMMB:          preflight.MinimumSharedHostingRAMMB,
 		DiskGB:         preflight.MinimumDiskGB,
-		SwapMB:         preflight.MinimumSwapMB,
+		SwapMB:         preflight.MinimumSharedHostingSwapMB,
 		IsRoot:         true,
 		HasSystemd:     true,
 		PortsAvailable: map[int]bool{80: true, 443: true},
