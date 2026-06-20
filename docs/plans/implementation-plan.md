@@ -79,16 +79,18 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add CI gates for formatting, tests, and builds.
 
+**Status:** Completed with GitHub Actions on Ubuntu 24.04.
+
 **Acceptance criteria:**
 
-- [ ] CI workflow runs on pull requests and pushes.
-- [ ] CI checks formatting.
-- [ ] CI runs tests.
-- [ ] CI builds all binaries.
+- [x] CI workflow runs on pull requests and pushes.
+- [x] CI checks formatting.
+- [x] CI runs tests.
+- [x] CI builds all binaries.
 
 **Verification:**
 
-- [ ] Local equivalent commands pass.
+- [x] Local equivalent commands pass.
 
 **Dependencies:** Task 0.2.
 
