@@ -192,16 +192,22 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add CLI or installer bootstrap for creating the first owner/admin user.
 
+**Status:** Password hashing, input validation, one-time bootstrap policy, and SQL store foundation completed. CLI wiring, role seeding, audit event, and live PostgreSQL verification are pending.
+
 **Acceptance criteria:**
 
-- [ ] First admin can be created once.
-- [ ] Password is hashed with a strong algorithm.
+- [x] First admin can be created once at service policy level.
+- [x] Password is hashed with a strong algorithm.
+- [x] Bootstrap input validates email, display name, and minimum password length.
+- [ ] Bootstrap command wires service to the panel database.
+- [ ] Owner/admin role is assigned.
 - [ ] Duplicate bootstrap is rejected.
 - [ ] Audit event is recorded.
 
 **Verification:**
 
-- [ ] Unit and integration tests for bootstrap.
+- [x] Unit tests for bootstrap policy and password hashing.
+- [ ] Integration tests for bootstrap against disposable PostgreSQL.
 
 **Dependencies:** Phase 1.
 
