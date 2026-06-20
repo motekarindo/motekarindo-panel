@@ -282,6 +282,27 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight --profile sin
 
 The real collector reads OS release, CPU, RAM, swap, disk, root status, systemd status, and port availability. It does not install packages, edit files, create users, or start/stop services.
 
+Run an installer dry-run plan with sample facts:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl install plan \
+  --sample \
+  --profile shared-hosting \
+  --web-server nginx \
+  --postgresql install
+```
+
+Run an installer dry-run plan with real read-only preflight facts:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl install plan \
+  --profile shared-hosting \
+  --web-server nginx \
+  --postgresql install
+```
+
+The install plan command is dry-run only. It prints actions that would change the host later, but it does not execute them.
+
 ## Troubleshooting
 
 ### `operation not permitted` when running Go commands

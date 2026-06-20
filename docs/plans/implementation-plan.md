@@ -428,20 +428,22 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add installer flow to select Nginx or Apache once and persist it as immutable server setting.
 
-**Status:** Domain policy and SQL store guard completed. Installer command, audit event, and live PostgreSQL verification are pending.
+**Status:** Domain policy, SQL store guard, and installer dry-run plan completed. Actual installer persistence, audit event, and live PostgreSQL verification are pending.
 
 **Acceptance criteria:**
 
 - [x] Supported web server values are validated.
 - [x] Selected web server is saved through immutable setting policy.
 - [x] Store-level guard prevents overwriting an already selected immutable value.
-- [ ] Installer requires web server selection.
+- [x] Installer dry-run requires web server selection.
+- [ ] Installer writes selected web server during actual install.
 - [ ] Panel cannot change it after install through public API/UI.
 - [ ] Attempt to change setting is rejected and audited.
 
 **Verification:**
 
 - [x] Unit tests for web server validation and immutable selection policy.
+- [x] Unit tests for installer dry-run plan.
 - [ ] Integration tests for SQL setting immutability on disposable PostgreSQL.
 
 **Dependencies:** Task 4.2.

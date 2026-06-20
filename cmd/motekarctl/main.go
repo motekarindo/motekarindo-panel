@@ -21,6 +21,8 @@ func run(args []string) error {
 	}
 
 	switch command {
+	case "install":
+		return installCommand(args[1:])
 	case "preflight":
 		return preflightCommand(args[1:])
 	case "version":
