@@ -32,6 +32,8 @@ func run(args []string) error {
 	}
 
 	switch command {
+	case "bootstrap":
+		return bootstrap(args[1:])
 	case "serve":
 		return serve()
 	case "migrate":

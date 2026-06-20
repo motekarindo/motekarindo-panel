@@ -146,6 +146,22 @@ The migration runner records applied versions in `schema_migrations`.
 
 Do not run database migrations against a production or important database until backup and restore procedures exist. For now, run them only against a disposable local database or a test VPS database.
 
+## First Admin Bootstrap
+
+After migrations have been applied to a disposable PostgreSQL database, create the first admin with:
+
+```bash
+printf '%s\n' 'change-this-long-password' | \
+  MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslmode=disable" \
+  GOCACHE="$(pwd)/.cache/go-build" \
+  go run ./cmd/motekar-panel bootstrap admin \
+    --email owner@example.com \
+    --display-name "Owner" \
+    --password-stdin
+```
+
+The password is read from stdin so it does not need to be passed as a command argument. Do not run this against a production database until the bootstrap flow includes role assignment, audit events, and backup/restore procedures.
+
 ## Agent API
 
 Run the agent:
