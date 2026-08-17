@@ -72,7 +72,6 @@ ON CONFLICT (user_id, role_id) DO NOTHING`,
 		TargetType: "user",
 		TargetID:   admin.ID,
 		Metadata: map[string]string{
-			"email":  admin.Email,
 			"source": "bootstrap",
 		},
 	}); err != nil {

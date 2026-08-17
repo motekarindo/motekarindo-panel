@@ -11,24 +11,42 @@ import (
 
 const (
 	ActionBootstrapAdminCreated = "auth.bootstrap_admin.created"
+	ActionLoginSucceeded        = "auth.login.succeeded"
+	ActionLoginFailed           = "auth.login.failed"
+	ActionLoginRejected         = "auth.login.rejected"
+	ActionLogoutSucceeded       = "auth.logout.succeeded"
+	MaxRecentEvents             = 100
+	maxActionBytes              = 128
+	maxTargetTypeBytes          = 64
+	maxTargetIDBytes            = 256
+	maxUserAgentBytes           = 2048
+	maxMetadataValueBytes       = 1024
+	maxMetadataBytes            = 8192
 )
 
-var ErrInvalidEvent = errors.New("invalid audit event")
+var (
+	ErrInvalidEvent = errors.New("invalid audit event")
+	ErrInvalidLimit = errors.New("invalid audit event limit")
+)
 
 type Event struct {
-	ID          string
-	ActorUserID string
-	Action      string
-	TargetType  string
-	TargetID    string
-	IPAddress   string
-	UserAgent   string
-	Metadata    map[string]string
-	CreatedAt   time.Time
+	ID          string            `json:"id"`
+	ActorUserID string            `json:"actorUserId,omitempty"`
+	Action      string            `json:"action"`
+	TargetType  string            `json:"targetType"`
+	TargetID    string            `json:"targetId"`
+	IPAddress   string            `json:"ipAddress,omitempty"`
+	UserAgent   string            `json:"userAgent,omitempty"`
+	Metadata    map[string]string `json:"metadata"`
+	CreatedAt   time.Time         `json:"createdAt"`
 }
 
 type Store interface {
 	Write(ctx context.Context, event Event) error
+}
+
+type Reader interface {
+	ListRecent(ctx context.Context, limit int) ([]Event, error)
 }
 
 type Writer struct {
@@ -56,31 +74,51 @@ func (w Writer) WithIDGenerator(newID func() (string, error)) Writer {
 }
 
 func (w Writer) Record(ctx context.Context, event Event) (Event, error) {
+	event.ActorUserID = strings.TrimSpace(event.ActorUserID)
 	event.Action = strings.TrimSpace(event.Action)
 	event.TargetType = strings.TrimSpace(event.TargetType)
 	event.TargetID = strings.TrimSpace(event.TargetID)
+	event.IPAddress = strings.TrimSpace(event.IPAddress)
+	event.UserAgent = strings.TrimSpace(event.UserAgent)
 
-	if event.Action == "" || event.TargetType == "" || event.TargetID == "" {
+	allowedMetadata, actionKnown := auditMetadataKeys[event.Action]
+	if !actionKnown || event.TargetType == "" || event.TargetID == "" ||
+		len(event.Action) > maxActionBytes || len(event.TargetType) > maxTargetTypeBytes ||
+		len(event.TargetID) > maxTargetIDBytes || len(event.UserAgent) > maxUserAgentBytes {
 		return Event{}, ErrInvalidEvent
-	}
-	if event.ID == "" {
-		id, err := w.newID()
-		if err != nil {
-			return Event{}, err
-		}
-		event.ID = id
-	}
-	if event.CreatedAt.IsZero() {
-		event.CreatedAt = w.now()
 	}
 	if event.Metadata == nil {
 		event.Metadata = map[string]string{}
 	}
+	metadataBytes := 0
+	for key, value := range event.Metadata {
+		if !allowedMetadata[key] || len(value) > maxMetadataValueBytes {
+			return Event{}, ErrInvalidEvent
+		}
+		metadataBytes += len(key) + len(value)
+	}
+	if metadataBytes > maxMetadataBytes {
+		return Event{}, ErrInvalidEvent
+	}
+	id, err := w.newID()
+	if err != nil {
+		return Event{}, err
+	}
+	event.ID = id
+	event.CreatedAt = w.now()
 
 	if err := w.store.Write(ctx, event); err != nil {
 		return Event{}, err
 	}
 	return event, nil
+}
+
+var auditMetadataKeys = map[string]map[string]bool{
+	ActionBootstrapAdminCreated: {"source": true},
+	ActionLoginSucceeded:        {},
+	ActionLoginFailed:           {},
+	ActionLoginRejected:         {"reason": true},
+	ActionLogoutSucceeded:       {},
 }
 
 func newUUID() (string, error) {

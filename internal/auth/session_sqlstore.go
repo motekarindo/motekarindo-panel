@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/motekar/motekar-panel/internal/audit"
 )
 
 type SQLSessionStore struct {
@@ -31,11 +33,26 @@ WHERE email = $1
 	return user, nil
 }
 
-func (s SQLSessionStore) CreateSession(ctx context.Context, session SessionRecord) error {
-	_, err := s.db.ExecContext(ctx, `
+func (s SQLSessionStore) CreateSession(ctx context.Context, session SessionRecord, event audit.Event) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
 INSERT INTO sessions (id, user_id, token_hash, ip_address, user_agent, expires_at)
 VALUES ($1, $2, $3, NULLIF($4, '')::inet, $5, $6)
-`, session.ID, session.UserID, session.TokenHash, session.IPAddress, session.UserAgent, session.ExpiresAt)
+`, session.ID, session.UserID, session.TokenHash, session.IPAddress, session.UserAgent, session.ExpiresAt); err != nil {
+		return err
+	}
+	if _, err := audit.NewWriter(audit.NewSQLStore(tx)).Record(ctx, event); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s SQLSessionStore) RecordAudit(ctx context.Context, event audit.Event) error {
+	_, err := audit.NewWriter(audit.NewSQLStore(s.db)).Record(ctx, event)
 	return err
 }
 
@@ -58,7 +75,25 @@ WHERE s.token_hash = $1
 	return principal, nil
 }
 
-func (s SQLSessionStore) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
-	return err
+func (s SQLSessionStore) DeleteSessionByTokenHash(ctx context.Context, tokenHash string, event audit.Event) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var sessionID string
+	if err := tx.QueryRowContext(ctx, `
+DELETE FROM sessions
+WHERE token_hash = $1
+RETURNING id, user_id
+`, tokenHash).Scan(&sessionID, &event.ActorUserID); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	event.TargetID = sessionID
+	if _, err := audit.NewWriter(audit.NewSQLStore(tx)).Record(ctx, event); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

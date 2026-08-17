@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/motekar/motekar-panel/internal/audit"
 	"github.com/motekar/motekar-panel/internal/auth"
 )
 
@@ -158,6 +159,43 @@ func TestAuthRejectsCrossOriginRequests(t *testing.T) {
 	}
 }
 
+func TestLoginRejectionAuditIsBoundedAndCredentialFree(t *testing.T) {
+	t.Parallel()
+
+	recorder := &fakeAuditRecorder{err: errors.New("audit unavailable")}
+	auditErrors := 0
+	app := New(Config{
+		Sessions:      &fakeSessionAuthenticator{},
+		AuditRecorder: recorder,
+		AuditError:    func(error) { auditErrors++ },
+	})
+	for range loginAuditAttemptLimit + 5 {
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("password=do-not-record"))
+		req.Header.Set("Origin", "https://attacker.example")
+		req.Header.Set("User-Agent", "test-browser")
+		req.RemoteAddr = "192.0.2.50:12345"
+		rec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d", rec.Code)
+		}
+	}
+	if len(recorder.events) != loginAuditAttemptLimit {
+		t.Fatalf("audit event count = %d, want %d", len(recorder.events), loginAuditAttemptLimit)
+	}
+	if auditErrors != loginAuditAttemptLimit {
+		t.Fatalf("reported audit error count = %d, want %d", auditErrors, loginAuditAttemptLimit)
+	}
+	for _, event := range recorder.events {
+		if event.Action != audit.ActionLoginRejected || event.Metadata["reason"] != "cross_origin" || event.IPAddress != "192.0.2.50" {
+			t.Fatalf("audit event = %#v", event)
+		}
+		if strings.Contains(fmt.Sprint(event), "do-not-record") {
+			t.Fatalf("audit event contains credential: %#v", event)
+		}
+	}
+}
+
 func TestLoginSourceRateLimit(t *testing.T) {
 	t.Parallel()
 
@@ -238,8 +276,8 @@ func (f *fakeSessionAuthenticator) Login(_ context.Context, input auth.LoginInpu
 	return f.loginSession, f.loginErr
 }
 
-func (f *fakeSessionAuthenticator) Logout(_ context.Context, token string) error {
-	f.logoutToken = token
+func (f *fakeSessionAuthenticator) Logout(_ context.Context, input auth.LogoutInput) error {
+	f.logoutToken = input.Token
 	return f.logoutErr
 }
 
@@ -255,4 +293,14 @@ func setSameOrigin(req *http.Request, secure bool) {
 	}
 	req.Header.Set("Origin", scheme+"://"+req.Host)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
+}
+
+type fakeAuditRecorder struct {
+	events []audit.Event
+	err    error
+}
+
+func (f *fakeAuditRecorder) Record(_ context.Context, event audit.Event) (audit.Event, error) {
+	f.events = append(f.events, event)
+	return event, f.err
 }

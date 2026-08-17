@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/motekar/motekar-panel/internal/agent"
+	"github.com/motekar/motekar-panel/internal/audit"
 	"github.com/motekar/motekar-panel/internal/auth"
 	"github.com/motekar/motekar-panel/internal/buildinfo"
 	"github.com/motekar/motekar-panel/internal/config"
@@ -108,10 +109,16 @@ func serve() error {
 	agentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
 	sessions := auth.NewSessionService(auth.NewSQLSessionStore(db))
 	authorization := rbac.NewAuthorizer(rbac.NewSQLPermissionChecker(db))
+	auditStore := audit.NewSQLStore(db)
 	app := server.New(server.Config{
 		Version:       buildinfo.Info(),
 		Sessions:      sessions,
 		Authorization: authorization,
+		AuditEvents:   auditStore,
+		AuditRecorder: audit.NewWriter(auditStore),
+		AuditError: func(err error) {
+			log.Error("audit event write failed", "error", err.Error())
+		},
 		SecureCookies: cfg.Environment == "production",
 		Ready: func(ctx context.Context) error {
 			if err := db.PingContext(ctx); err != nil {

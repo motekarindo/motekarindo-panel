@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/motekar/motekar-panel/internal/audit"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -52,6 +53,12 @@ type LoginSession struct {
 	ExpiresAt time.Time
 }
 
+type LogoutInput struct {
+	Token     string
+	IPAddress string
+	UserAgent string
+}
+
 type SessionPrincipal struct {
 	UserID      string
 	Email       string
@@ -61,9 +68,10 @@ type SessionPrincipal struct {
 
 type SessionStore interface {
 	FindUserByEmail(ctx context.Context, email string) (SessionUser, error)
-	CreateSession(ctx context.Context, session SessionRecord) error
+	CreateSession(ctx context.Context, session SessionRecord, event audit.Event) error
+	RecordAudit(ctx context.Context, event audit.Event) error
 	FindActiveSession(ctx context.Context, tokenHash string, now time.Time) (SessionPrincipal, error)
-	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
+	DeleteSessionByTokenHash(ctx context.Context, tokenHash string, event audit.Event) error
 }
 
 type SessionService struct {
@@ -110,7 +118,7 @@ func (s SessionService) Login(ctx context.Context, input LoginInput) (LoginSessi
 		if checkErr != nil {
 			return LoginSession{}, checkErr
 		}
-		return LoginSession{}, ErrInvalidCredentials
+		return LoginSession{}, s.recordFailedLogin(ctx, input)
 	}
 	if err != nil {
 		return LoginSession{}, err
@@ -123,7 +131,7 @@ func (s SessionService) Login(ctx context.Context, input LoginInput) (LoginSessi
 		return LoginSession{}, fmt.Errorf("verify password: %w", err)
 	}
 	if !validPassword || !user.IsActive {
-		return LoginSession{}, ErrInvalidCredentials
+		return LoginSession{}, s.recordFailedLogin(ctx, input)
 	}
 
 	id, err := s.newID()
@@ -135,18 +143,39 @@ func (s SessionService) Login(ctx context.Context, input LoginInput) (LoginSessi
 		return LoginSession{}, err
 	}
 	expiresAt := s.now().Add(DefaultSessionDuration)
-	if err := s.store.CreateSession(ctx, SessionRecord{
+	session := SessionRecord{
 		ID:        id,
 		UserID:    user.ID,
 		TokenHash: hashSessionToken(token),
 		IPAddress: strings.TrimSpace(input.IPAddress),
 		UserAgent: strings.TrimSpace(input.UserAgent),
 		ExpiresAt: expiresAt,
+	}
+	if err := s.store.CreateSession(ctx, session, audit.Event{
+		ActorUserID: user.ID,
+		Action:      audit.ActionLoginSucceeded,
+		TargetType:  "session",
+		TargetID:    session.ID,
+		IPAddress:   session.IPAddress,
+		UserAgent:   session.UserAgent,
 	}); err != nil {
 		return LoginSession{}, err
 	}
 
 	return LoginSession{Token: token, ExpiresAt: expiresAt}, nil
+}
+
+func (s SessionService) recordFailedLogin(ctx context.Context, input LoginInput) error {
+	if err := s.store.RecordAudit(ctx, audit.Event{
+		Action:     audit.ActionLoginFailed,
+		TargetType: "authentication",
+		TargetID:   "login",
+		IPAddress:  strings.TrimSpace(input.IPAddress),
+		UserAgent:  strings.TrimSpace(input.UserAgent),
+	}); err != nil {
+		return fmt.Errorf("record failed login audit: %w", err)
+	}
+	return ErrInvalidCredentials
 }
 
 func (s SessionService) runPasswordCheck(ctx context.Context, check func() (bool, error)) (bool, error) {
@@ -159,11 +188,16 @@ func (s SessionService) runPasswordCheck(ctx context.Context, check func() (bool
 	return check()
 }
 
-func (s SessionService) Logout(ctx context.Context, token string) error {
-	if token == "" {
+func (s SessionService) Logout(ctx context.Context, input LogoutInput) error {
+	if input.Token == "" {
 		return nil
 	}
-	return s.store.DeleteSessionByTokenHash(ctx, hashSessionToken(token))
+	return s.store.DeleteSessionByTokenHash(ctx, hashSessionToken(input.Token), audit.Event{
+		Action:     audit.ActionLogoutSucceeded,
+		TargetType: "session",
+		IPAddress:  strings.TrimSpace(input.IPAddress),
+		UserAgent:  strings.TrimSpace(input.UserAgent),
+	})
 }
 
 func (s SessionService) Validate(ctx context.Context, token string) (SessionPrincipal, error) {

@@ -67,6 +67,8 @@ Available endpoints:
 | `GET` | `/login` | Login form |
 | `POST` | `/login` | Create an authenticated session |
 | `POST` | `/logout` | Invalidate the current session |
+| `GET` | `/audit-events` | Recent audit events HTML view; requires `audit:read` |
+| `GET` | `/api/audit-events` | Recent audit events JSON; requires `audit:read` |
 | `GET` | `/healthz` | Liveness check |
 | `GET` | `/readyz` | Readiness check |
 | `GET` | `/version` | Build/version metadata |
@@ -151,6 +153,7 @@ Current migration files:
 - `services/migrations/000001_initial_core.sql`
 - `services/migrations/000002_seed_rbac.sql`
 - `services/migrations/000003_user_account_assignments.sql`
+- `services/migrations/000004_audit_event_hardening.sql`
 
 The migration runner records applied versions in `schema_migrations`.
 
@@ -166,7 +169,7 @@ MOTEKAR_TEST_ALLOW_DATABASE=1 \
   make test-integration-postgres
 ```
 
-The test verifies migration idempotency, RBAC seeds, first-admin bootstrap, session login/logout, hashed token storage, web-server settings, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
+The test verifies migration idempotency, RBAC seeds, first-admin bootstrap, session login/logout, audit event persistence/listing, hashed token storage, web-server settings, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
 
 ## First Admin Bootstrap
 
@@ -219,6 +222,12 @@ The panel loads effective permissions from PostgreSQL through role assignments. 
 Unauthenticated requests return `401` with `unauthenticated`, denied permissions return `403` with `forbidden`, and backend failures return a generic `500` with `internal_error`.
 
 Service methods operating on account-owned resources must call `rbac.Authorizer.AuthorizeAccount` with an `rbac.Actor` whose user ID comes from the validated session. The authorizer resolves roles and `user_account_assignments` from PostgreSQL in the same permission query. Owner and admin actors have global account scope; reseller and customer actors are limited to assigned account IDs. Never populate the actor user ID from request parameters.
+
+## Audit Events
+
+Open `http://127.0.0.1:8080/audit-events` while signed in as an owner or admin to view the 100 most recent events. The same data is available as JSON from `/api/audit-events`. Both routes require `audit:read` and return newest events first.
+
+The current pipeline records first-admin bootstrap, successful login, failed login, bounded malformed/rate-limited login rejection events, and successful logout. Session creation/deletion and their success events share a PostgreSQL transaction. Failed-login events never store submitted emails or passwords, and raw session tokens are never written to audit metadata. Audit action names and metadata keys are allowlisted with size limits; audit rows are append-only at the database layer.
 
 ## Agent API
 

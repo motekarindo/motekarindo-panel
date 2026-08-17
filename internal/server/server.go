@@ -16,6 +16,9 @@ type Config struct {
 	Ready         ReadyFunc
 	Sessions      SessionAuthenticator
 	Authorization PermissionAuthorizer
+	AuditEvents   AuditEventReader
+	AuditRecorder AuditRecorder
+	AuditError    func(error)
 	SecureCookies bool
 }
 
@@ -24,9 +27,13 @@ type Server struct {
 	ready         ReadyFunc
 	sessions      SessionAuthenticator
 	authorization PermissionAuthorizer
+	auditEvents   AuditEventReader
+	auditRecorder AuditRecorder
+	auditError    func(error)
 	secureCookies bool
 	loginLimiter  *loginLimiter
 	sourceLimiter *loginLimiter
+	auditLimiter  *loginLimiter
 }
 
 func New(cfg Config) *Server {
@@ -38,9 +45,13 @@ func New(cfg Config) *Server {
 		ready:         cfg.Ready,
 		sessions:      cfg.Sessions,
 		authorization: cfg.Authorization,
+		auditEvents:   cfg.AuditEvents,
+		auditRecorder: cfg.AuditRecorder,
+		auditError:    cfg.AuditError,
 		secureCookies: cfg.SecureCookies,
 		loginLimiter:  newLoginLimiter(loginAttemptLimit),
 		sourceLimiter: newLoginLimiter(loginSourceAttemptLimit),
+		auditLimiter:  newLoginLimiter(loginAuditAttemptLimit),
 	}
 }
 
@@ -48,6 +59,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	home := s.RequirePermission(rbac.PermissionWebsitesManage, http.HandlerFunc(s.handleHome))
 	mux.Handle("GET /", home)
+	mux.Handle("GET /audit-events", s.RequirePermission(rbac.PermissionAuditRead, http.HandlerFunc(s.handleAuditEventsHTML)))
+	mux.Handle("GET /api/audit-events", s.RequirePermission(rbac.PermissionAuditRead, http.HandlerFunc(s.handleAuditEventsAPI)))
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("GET /version", s.handleVersion)

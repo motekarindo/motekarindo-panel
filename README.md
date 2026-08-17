@@ -2,7 +2,7 @@
 
 Motekar Panel is a shared-hosting server control panel owned by Motekar Teknologi Indonesia.
 
-Current implementation status: early Go foundation with panel API, PostgreSQL-backed admin sessions, Unix-socket agent API, configuration loading, structured logging, and health/version endpoints.
+Current implementation status: early Go foundation with PostgreSQL-backed admin sessions, RBAC, audit event views, Unix-socket agent API, configuration loading, structured logging, and health/version endpoints.
 
 ## Quick Start
 

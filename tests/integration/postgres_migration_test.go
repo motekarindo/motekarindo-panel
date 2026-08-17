@@ -73,18 +73,43 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
-	if len(migrations) != 3 {
-		t.Fatalf("loaded %d migrations, want 3", len(migrations))
+	if len(migrations) != 4 {
+		t.Fatalf("loaded %d migrations, want 4", len(migrations))
 	}
 
 	runner := database.NewRunner(database.NewSQLStore(db))
-	ran, err := runner.Up(ctx, migrations)
+	ran, err := runner.Up(ctx, migrations[:3])
 	if err != nil {
-		t.Fatalf("apply migrations: %v", err)
+		t.Fatalf("apply pre-audit-hardening migrations: %v", err)
 	}
-	if len(ran) != len(migrations) {
-		t.Fatalf("applied %d migrations, want %d on an empty disposable database", len(ran), len(migrations))
+	if len(ran) != 3 {
+		t.Fatalf("applied %d pre-audit-hardening migrations, want 3", len(ran))
 	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO audit_events (id, action, target_type, target_id, metadata)
+		VALUES (
+			'60000000-0000-4000-8000-000000000001',
+			'auth.bootstrap_admin.created',
+			'user',
+			'legacy-admin',
+			'{"email":"legacy@example.com","source":"bootstrap"}'::jsonb
+		)
+	`); err != nil {
+		t.Fatalf("insert legacy bootstrap audit event: %v", err)
+	}
+
+	ran, err = runner.Up(ctx, migrations)
+	if err != nil {
+		t.Fatalf("apply audit hardening migration: %v", err)
+	}
+	if len(ran) != 1 {
+		t.Fatalf("applied %d audit hardening migrations, want 1", len(ran))
+	}
+	assertCount(t, ctx, db, `
+		SELECT count(*) FROM audit_events
+		WHERE id = '60000000-0000-4000-8000-000000000001'
+		  AND metadata = '{"source":"bootstrap"}'::jsonb
+	`, 1)
 
 	ran, err = runner.Up(ctx, migrations)
 	if err != nil {
@@ -94,7 +119,7 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		t.Fatalf("reapplied %d migrations, want none", len(ran))
 	}
 
-	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 3)
+	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 4)
 	assertCount(t, ctx, db, `SELECT count(*) FROM roles`, 4)
 	assertCount(t, ctx, db, `SELECT count(*) FROM permissions`, 13)
 	assertRolePermissions(t, ctx, db, "owner",
@@ -189,7 +214,7 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		ALTER TABLE audit_events
 		ADD CONSTRAINT reject_bootstrap_audit
-		CHECK (action <> 'auth.bootstrap_admin.created')
+		CHECK (action <> 'auth.bootstrap_admin.created' OR target_id <> '30000000-0000-4000-8000-000000000009')
 	`); err != nil {
 		t.Fatalf("install audit failure constraint: %v", err)
 	}
@@ -204,7 +229,7 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	}
 	assertCount(t, ctx, db, `SELECT count(*) FROM users`, 0)
 	assertCount(t, ctx, db, `SELECT count(*) FROM user_roles`, 0)
-	assertCount(t, ctx, db, `SELECT count(*) FROM audit_events`, 0)
+	assertCount(t, ctx, db, `SELECT count(*) FROM audit_events`, 1)
 	if _, err := db.ExecContext(ctx, `ALTER TABLE audit_events DROP CONSTRAINT reject_bootstrap_audit`); err != nil {
 		t.Fatalf("remove audit failure constraint: %v", err)
 	}
@@ -324,6 +349,15 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if storedTokenHash == "" || storedTokenHash == session.Token || storedIPAddress != "192.0.2.10" || storedUserAgent != "integration-browser" {
 		t.Fatalf("stored session = hash:%q ip:%q user-agent:%q", storedTokenHash, storedIPAddress, storedUserAgent)
 	}
+	assertCount(t, ctx, db, `
+		SELECT count(*) FROM audit_events
+		WHERE action = $1
+		  AND actor_user_id = $2
+		  AND target_type = 'session'
+		  AND target_id = $3
+		  AND host(ip_address) = '192.0.2.10'
+		  AND user_agent = 'integration-browser'
+	`, 1, audit.ActionLoginSucceeded, admin.ID, "30000000-0000-4000-8000-000000000020")
 	principal, err := sessionService.Validate(ctx, session.Token)
 	if err != nil {
 		t.Fatalf("validate session: %v", err)
@@ -351,18 +385,35 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	}
 
 	for _, input := range []auth.LoginInput{
-		{Email: "unknown@example.com", Password: "correct horse battery staple"},
-		{Email: admin.Email, Password: "wrong password"},
+		{Email: "unknown@example.com", Password: "correct horse battery staple", IPAddress: "192.0.2.11", UserAgent: "integration-browser"},
+		{Email: admin.Email, Password: "wrong password", IPAddress: "192.0.2.11", UserAgent: "integration-browser"},
 	} {
 		if _, err := sessionService.Login(ctx, input); !errors.Is(err, auth.ErrInvalidCredentials) {
 			t.Fatalf("invalid login error = %v, want %v", err, auth.ErrInvalidCredentials)
 		}
 	}
+	assertCount(t, ctx, db, `
+		SELECT count(*) FROM audit_events
+		WHERE action = $1
+		  AND actor_user_id IS NULL
+		  AND metadata = '{}'::jsonb
+	`, 2, audit.ActionLoginFailed)
 
-	if err := sessionService.Logout(ctx, session.Token); err != nil {
+	if err := sessionService.Logout(ctx, auth.LogoutInput{
+		Token:     session.Token,
+		IPAddress: "192.0.2.10",
+		UserAgent: "integration-browser",
+	}); err != nil {
 		t.Fatalf("logout first admin: %v", err)
 	}
 	assertCount(t, ctx, db, `SELECT count(*) FROM sessions`, 0)
+	assertCount(t, ctx, db, `
+		SELECT count(*) FROM audit_events
+		WHERE action = $1
+		  AND actor_user_id = $2
+		  AND host(ip_address) = '192.0.2.10'
+		  AND user_agent = 'integration-browser'
+	`, 1, audit.ActionLogoutSucceeded, admin.ID)
 	if _, err := sessionService.Validate(ctx, session.Token); !errors.Is(err, auth.ErrInvalidSession) {
 		t.Fatalf("logged-out session validation error = %v, want %v", err, auth.ErrInvalidSession)
 	}
@@ -450,7 +501,27 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create HTTP integration session: %v", err)
 	}
-	app := server.New(server.Config{Sessions: sessionService, Authorization: authorization})
+	auditStore := audit.NewSQLStore(db)
+	app := server.New(server.Config{Sessions: sessionService, Authorization: authorization, AuditEvents: auditStore})
+	auditRequest := httptest.NewRequest(http.MethodGet, "/api/audit-events", nil)
+	auditRequest.AddCookie(&http.Cookie{Name: server.SessionCookieName, Value: httpSession.Token})
+	auditResponse := httptest.NewRecorder()
+	app.Handler().ServeHTTP(auditResponse, auditRequest)
+	if auditResponse.Code != http.StatusOK || !strings.Contains(auditResponse.Body.String(), audit.ActionLoginSucceeded) || !strings.Contains(auditResponse.Body.String(), audit.ActionLoginFailed) {
+		t.Fatalf("audit listing HTTP response = %d body=%q", auditResponse.Code, auditResponse.Body.String())
+	}
+	recentEvents, err := auditStore.ListRecent(ctx, audit.MaxRecentEvents)
+	if err != nil {
+		t.Fatalf("list recent audit events: %v", err)
+	}
+	if len(recentEvents) < 6 {
+		t.Fatalf("recent audit event count = %d, want at least 6", len(recentEvents))
+	}
+	for index := 1; index < len(recentEvents); index++ {
+		if recentEvents[index].CreatedAt.After(recentEvents[index-1].CreatedAt) {
+			t.Fatalf("audit events are not newest first: %#v", recentEvents)
+		}
+	}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.AddCookie(&http.Cookie{Name: server.SessionCookieName, Value: httpSession.Token})
 	response := httptest.NewRecorder()
@@ -480,6 +551,73 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	app.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), `"code":"unauthenticated"`) {
 		t.Fatalf("expired-session HTTP response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO audit_events (id, action, target_type, target_id, metadata, created_at)
+		SELECT
+			('50000000-0000-4000-8000-' || lpad(value::text, 12, '0'))::uuid,
+			'auth.login.rejected',
+			'authentication',
+			'bulk-' || value,
+			jsonb_build_object('attempt', value),
+			'2099-01-01T00:00:00Z'::timestamptz
+		FROM generate_series(1, 105) AS value
+	`); err != nil {
+		t.Fatalf("insert audit listing fixtures: %v", err)
+	}
+	limitedEvents, err := auditStore.ListRecent(ctx, audit.MaxRecentEvents)
+	if err != nil {
+		t.Fatalf("list capped audit events: %v", err)
+	}
+	if len(limitedEvents) != audit.MaxRecentEvents || limitedEvents[0].TargetID != "bulk-105" || limitedEvents[len(limitedEvents)-1].TargetID != "bulk-6" {
+		t.Fatalf("capped audit event range = count:%d first:%q last:%q", len(limitedEvents), limitedEvents[0].TargetID, limitedEvents[len(limitedEvents)-1].TargetID)
+	}
+	if limitedEvents[0].Metadata["attempt"] != "105" {
+		t.Fatalf("non-string audit metadata = %#v", limitedEvents[0].Metadata)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE audit_events SET action = 'auth.login.failed'`); err == nil {
+		t.Fatal("expected append-only audit update to fail")
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM audit_events`); err == nil {
+		t.Fatal("expected append-only audit delete to fail")
+	}
+
+	rollbackSessionService := auth.NewSessionService(auth.NewSQLSessionStore(db)).
+		WithClock(func() time.Time { return sessionNow }).
+		WithIDGenerator(func() (string, error) { return "30000000-0000-4000-8000-000000000041", nil }).
+		WithTokenGenerator(func() (string, error) { return "rollback-logout-token", nil })
+	rollbackSession, err := rollbackSessionService.Login(ctx, auth.LoginInput{
+		Email: admin.Email, Password: "correct horse battery staple",
+	})
+	if err != nil {
+		t.Fatalf("create rollback session fixture: %v", err)
+	}
+	var sessionsBeforeAuditFailure int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sessions`).Scan(&sessionsBeforeAuditFailure); err != nil {
+		t.Fatalf("count sessions before audit failure: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE audit_events RENAME TO audit_events_unavailable`); err != nil {
+		t.Fatalf("make audit table unavailable: %v", err)
+	}
+	failedLoginService := auth.NewSessionService(auth.NewSQLSessionStore(db)).
+		WithClock(func() time.Time { return sessionNow }).
+		WithIDGenerator(func() (string, error) { return "30000000-0000-4000-8000-000000000042", nil }).
+		WithTokenGenerator(func() (string, error) { return "rollback-login-token", nil })
+	if _, err := failedLoginService.Login(ctx, auth.LoginInput{
+		Email: admin.Email, Password: "correct horse battery staple",
+	}); err == nil {
+		t.Fatal("expected login to fail when audit table is unavailable")
+	}
+	if err := rollbackSessionService.Logout(ctx, auth.LogoutInput{Token: rollbackSession.Token}); err == nil {
+		t.Fatal("expected logout to fail when audit table is unavailable")
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM sessions`, sessionsBeforeAuditFailure)
+	if _, err := db.ExecContext(ctx, `ALTER TABLE audit_events_unavailable RENAME TO audit_events`); err != nil {
+		t.Fatalf("restore audit table: %v", err)
+	}
+	if err := rollbackSessionService.Logout(ctx, auth.LogoutInput{Token: rollbackSession.Token}); err != nil {
+		t.Fatalf("clean up rollback session: %v", err)
 	}
 }
 

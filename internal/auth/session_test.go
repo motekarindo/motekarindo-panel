@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/motekar/motekar-panel/internal/audit"
 )
 
 func TestSessionLoginCreatesHashedToken(t *testing.T) {
@@ -51,6 +53,12 @@ func TestSessionLoginCreatesHashedToken(t *testing.T) {
 	}
 	if store.created.IPAddress != "127.0.0.1" || store.created.UserAgent != "test-browser" {
 		t.Fatalf("request metadata = %#v", store.created)
+	}
+	if store.createdAudit.Action != audit.ActionLoginSucceeded || store.createdAudit.ActorUserID != store.user.ID || store.createdAudit.TargetID != store.created.ID {
+		t.Fatalf("login audit event = %#v", store.createdAudit)
+	}
+	if store.createdAudit.IPAddress != "127.0.0.1" || store.createdAudit.UserAgent != "test-browser" {
+		t.Fatalf("login audit metadata = %#v", store.createdAudit)
 	}
 	store.principal = SessionPrincipal{
 		UserID:      store.user.ID,
@@ -107,6 +115,12 @@ func TestSessionLoginReturnsSameErrorForUnknownWrongAndInactiveUsers(t *testing.
 			if tc.store.created.ID != "" {
 				t.Fatalf("unexpected session: %#v", tc.store.created)
 			}
+			if tc.store.recordedAudit.Action != audit.ActionLoginFailed || tc.store.recordedAudit.ActorUserID != "" {
+				t.Fatalf("failed-login audit event = %#v", tc.store.recordedAudit)
+			}
+			if len(tc.store.recordedAudit.Metadata) != 0 {
+				t.Fatalf("failed-login metadata = %#v, want empty", tc.store.recordedAudit.Metadata)
+			}
 		})
 	}
 }
@@ -115,14 +129,37 @@ func TestSessionLogoutDeletesHashedToken(t *testing.T) {
 	store := &sessionMemoryStore{}
 	service := NewSessionService(store)
 
-	if err := service.Logout(context.Background(), "raw-session-token"); err != nil {
+	if err := service.Logout(context.Background(), LogoutInput{
+		Token:     "raw-session-token",
+		IPAddress: "127.0.0.1",
+		UserAgent: "test-browser",
+	}); err != nil {
 		t.Fatalf("logout: %v", err)
 	}
 	if store.deletedTokenHash == "" || store.deletedTokenHash == "raw-session-token" {
 		t.Fatalf("deleted token hash = %q", store.deletedTokenHash)
 	}
-	if err := service.Logout(context.Background(), ""); err != nil {
+	if store.deletedAudit.Action != audit.ActionLogoutSucceeded || store.deletedAudit.IPAddress != "127.0.0.1" || store.deletedAudit.UserAgent != "test-browser" {
+		t.Fatalf("logout audit event = %#v", store.deletedAudit)
+	}
+	if err := service.Logout(context.Background(), LogoutInput{}); err != nil {
 		t.Fatalf("empty logout: %v", err)
+	}
+}
+
+func TestSessionLoginFailsClosedWhenFailureAuditCannotBeWritten(t *testing.T) {
+	t.Parallel()
+
+	store := &sessionMemoryStore{
+		findErr:   ErrSessionUserNotFound,
+		recordErr: errors.New("audit unavailable"),
+	}
+	_, err := NewSessionService(store).Login(context.Background(), LoginInput{
+		Email:    "unknown@example.com",
+		Password: "wrong password",
+	})
+	if err == nil || errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login error = %v, want audit failure", err)
 	}
 }
 
@@ -182,6 +219,10 @@ type sessionMemoryStore struct {
 	foundTokenHash   string
 	foundAt          time.Time
 	deletedTokenHash string
+	createdAudit     audit.Event
+	recordedAudit    audit.Event
+	deletedAudit     audit.Event
+	recordErr        error
 }
 
 func (s *sessionMemoryStore) FindUserByEmail(_ context.Context, email string) (SessionUser, error) {
@@ -192,9 +233,15 @@ func (s *sessionMemoryStore) FindUserByEmail(_ context.Context, email string) (S
 	return s.user, nil
 }
 
-func (s *sessionMemoryStore) CreateSession(_ context.Context, session SessionRecord) error {
+func (s *sessionMemoryStore) CreateSession(_ context.Context, session SessionRecord, event audit.Event) error {
 	s.created = session
+	s.createdAudit = event
 	return nil
+}
+
+func (s *sessionMemoryStore) RecordAudit(_ context.Context, event audit.Event) error {
+	s.recordedAudit = event
+	return s.recordErr
 }
 
 func (s *sessionMemoryStore) FindActiveSession(_ context.Context, tokenHash string, now time.Time) (SessionPrincipal, error) {
@@ -203,7 +250,8 @@ func (s *sessionMemoryStore) FindActiveSession(_ context.Context, tokenHash stri
 	return s.principal, s.findSessionErr
 }
 
-func (s *sessionMemoryStore) DeleteSessionByTokenHash(_ context.Context, tokenHash string) error {
+func (s *sessionMemoryStore) DeleteSessionByTokenHash(_ context.Context, tokenHash string, event audit.Event) error {
 	s.deletedTokenHash = tokenHash
+	s.deletedAudit = event
 	return nil
 }

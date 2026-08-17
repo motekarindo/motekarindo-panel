@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/motekar/motekar-panel/internal/audit"
 	"github.com/motekar/motekar-panel/internal/auth"
 )
 
@@ -22,13 +23,14 @@ const (
 	maxUserAgentRunes       = 512
 	loginAttemptLimit       = 5
 	loginSourceAttemptLimit = 50
+	loginAuditAttemptLimit  = 10
 	loginAttemptWindow      = 15 * time.Minute
 	maxLoginLimiterEntries  = 10_000
 )
 
 type SessionAuthenticator interface {
 	Login(ctx context.Context, input auth.LoginInput) (auth.LoginSession, error)
-	Logout(ctx context.Context, token string) error
+	Logout(ctx context.Context, input auth.LogoutInput) error
 	Validate(ctx context.Context, token string) (auth.SessionPrincipal, error)
 }
 
@@ -41,6 +43,7 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.setAuthResponseHeaders(w)
 	if !s.authRequestIsSameOrigin(r) {
+		s.recordLoginRejection(r, "cross_origin")
 		http.Error(w, "Forbidden.", http.StatusForbidden)
 		return
 	}
@@ -49,34 +52,33 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		s.recordLoginRejection(r, "malformed_request")
 		http.Error(w, "Invalid email or password.", http.StatusUnauthorized)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
+		s.recordLoginRejection(r, "malformed_request")
 		http.Error(w, "Invalid email or password.", http.StatusUnauthorized)
 		return
 	}
 	email := r.PostForm.Get("email")
 	password := r.PostForm.Get("password")
 	if email == "" || password == "" || len(email) > maxEmailBytes || len(password) > maxPasswordBytes {
+		s.recordLoginRejection(r, "invalid_credentials")
 		http.Error(w, "Invalid email or password.", http.StatusUnauthorized)
 		return
 	}
 	limiterKey := ipAddress + "\x00" + strings.ToLower(strings.TrimSpace(email))
 	if !s.sourceLimiter.Allow(ipAddress) || !s.loginLimiter.Allow(limiterKey) {
+		s.recordLoginRejection(r, "rate_limited")
 		http.Error(w, "Too many login attempts.", http.StatusTooManyRequests)
 		return
 	}
-	userAgentRunes := []rune(strings.ToValidUTF8(r.UserAgent(), ""))
-	if len(userAgentRunes) > maxUserAgentRunes {
-		userAgentRunes = userAgentRunes[:maxUserAgentRunes]
-	}
-
 	session, err := s.sessions.Login(r.Context(), auth.LoginInput{
 		Email:     email,
 		Password:  password,
 		IPAddress: ipAddress,
-		UserAgent: string(userAgentRunes),
+		UserAgent: requestUserAgent(r),
 	})
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		http.Error(w, "Invalid email or password.", http.StatusUnauthorized)
@@ -100,6 +102,27 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (s *Server) recordLoginRejection(r *http.Request, reason string) {
+	if s.auditRecorder == nil {
+		return
+	}
+	ipAddress := requestIPAddress(r.RemoteAddr)
+	if !s.auditLimiter.Allow(ipAddress) {
+		return
+	}
+	_, err := s.auditRecorder.Record(r.Context(), audit.Event{
+		Action:     audit.ActionLoginRejected,
+		TargetType: "authentication",
+		TargetID:   "login",
+		IPAddress:  ipAddress,
+		UserAgent:  requestUserAgent(r),
+		Metadata:   map[string]string{"reason": reason},
+	})
+	if err != nil && s.auditError != nil {
+		s.auditError(err)
+	}
+}
+
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.setAuthResponseHeaders(w)
 	if !s.authRequestIsSameOrigin(r) {
@@ -110,7 +133,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(SessionCookieName); err == nil {
 		token = cookie.Value
 	}
-	if err := s.sessions.Logout(r.Context(), token); err != nil {
+	if err := s.sessions.Logout(r.Context(), auth.LogoutInput{
+		Token:     token,
+		IPAddress: requestIPAddress(r.RemoteAddr),
+		UserAgent: requestUserAgent(r),
+	}); err != nil {
 		http.Error(w, "Unable to sign out.", http.StatusInternalServerError)
 		return
 	}
@@ -125,6 +152,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func requestUserAgent(r *http.Request) string {
+	userAgentRunes := []rune(strings.ToValidUTF8(r.UserAgent(), ""))
+	if len(userAgentRunes) > maxUserAgentRunes {
+		userAgentRunes = userAgentRunes[:maxUserAgentRunes]
+	}
+	return string(userAgentRunes)
 }
 
 func (s *Server) authRequestIsSameOrigin(r *http.Request) bool {
