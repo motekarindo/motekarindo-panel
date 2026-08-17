@@ -17,6 +17,8 @@ const (
 	ActionLogoutSucceeded       = "auth.logout.succeeded"
 	ActionJobRetried            = "job.retried"
 	ActionJobCancelled          = "job.cancelled"
+	ActionWebServerSelected     = "settings.web_server.selected"
+	ActionWebServerChangeDenied = "settings.web_server.change_denied"
 	MaxRecentEvents             = 100
 	maxActionBytes              = 128
 	maxTargetTypeBytes          = 64
@@ -123,6 +125,8 @@ var auditMetadataKeys = map[string]map[string]bool{
 	ActionLogoutSucceeded:       {},
 	ActionJobRetried:            {},
 	ActionJobCancelled:          {},
+	ActionWebServerSelected:     {"value": true},
+	ActionWebServerChangeDenied: {"value": true, "current": true},
 }
 
 func newUUID() (string, error) {

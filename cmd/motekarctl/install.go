@@ -20,10 +20,17 @@ type installPlanOptions struct {
 }
 
 func installCommand(args []string) error {
-	if len(args) == 0 || args[0] != "plan" {
-		return fmt.Errorf("usage: motekarctl install plan --profile <profile> --web-server <nginx|apache> --postgresql <install|external>")
+	if len(args) == 0 {
+		return fmt.Errorf("usage: motekarctl install <plan|apply> ...")
 	}
-	return runInstallPlan(args[1:], os.Stdout, preflight.NewCollector().Collect)
+	switch args[0] {
+	case "plan":
+		return runInstallPlan(args[1:], os.Stdout, preflight.NewCollector().Collect)
+	case "apply":
+		return installApplyCommand(args[1:])
+	default:
+		return fmt.Errorf("unknown install subcommand %q; usage: motekarctl install <plan|apply> ...", args[0])
+	}
 }
 
 func runInstallPlan(args []string, stdout io.Writer, collect preflightCollector) error {

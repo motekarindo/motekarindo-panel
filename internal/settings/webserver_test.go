@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/motekar/motekar-panel/internal/audit"
 )
 
 func TestParseWebServerAcceptsSupportedValues(t *testing.T) {
@@ -56,6 +58,52 @@ func TestSelectRejectsChangingImmutableWebServer(t *testing.T) {
 	}
 }
 
+func TestSelectRecordsSelectedAuditEvent(t *testing.T) {
+	store := newMemoryStore()
+	events := &recordingEvents{}
+	service := NewWebServerService(store).WithAudit(audit.NewWriter(events))
+
+	if _, err := service.Select(context.Background(), "nginx"); err != nil {
+		t.Fatalf("Select returned error: %v", err)
+	}
+	if len(events.events) != 1 {
+		t.Fatalf("recorded events = %d, want 1", len(events.events))
+	}
+	event := events.events[0]
+	if event.Action != audit.ActionWebServerSelected || event.TargetType != "server_setting" || event.TargetID != WebServerSettingKey {
+		t.Fatalf("unexpected event: %#v", event)
+	}
+	if event.Metadata["value"] != "nginx" {
+		t.Fatalf("unexpected metadata: %#v", event.Metadata)
+	}
+}
+
+func TestSelectRecordsChangeDeniedAuditEvent(t *testing.T) {
+	store := newMemoryStore()
+	store.settings[WebServerSettingKey] = Setting{
+		Key:         WebServerSettingKey,
+		Value:       "nginx",
+		IsImmutable: true,
+	}
+	events := &recordingEvents{}
+	service := NewWebServerService(store).WithAudit(audit.NewWriter(events))
+
+	_, err := service.Select(context.Background(), "apache")
+	if !errors.Is(err, ErrWebServerAlreadySelected) {
+		t.Fatalf("expected ErrWebServerAlreadySelected, got %v", err)
+	}
+	if len(events.events) != 1 {
+		t.Fatalf("recorded events = %d, want 1", len(events.events))
+	}
+	event := events.events[0]
+	if event.Action != audit.ActionWebServerChangeDenied || event.TargetType != "server_setting" || event.TargetID != WebServerSettingKey {
+		t.Fatalf("unexpected event: %#v", event)
+	}
+	if event.Metadata["value"] != "apache" {
+		t.Fatalf("unexpected metadata: %#v", event.Metadata)
+	}
+}
+
 func TestSelectedRequiresExistingValue(t *testing.T) {
 	service := NewWebServerService(newMemoryStore())
 
@@ -94,5 +142,14 @@ func (s *memoryStore) Get(_ context.Context, key string) (Setting, error) {
 
 func (s *memoryStore) Save(_ context.Context, setting Setting) error {
 	s.settings[setting.Key] = setting
+	return nil
+}
+
+type recordingEvents struct {
+	events []audit.Event
+}
+
+func (r *recordingEvents) Write(_ context.Context, event audit.Event) error {
+	r.events = append(r.events, event)
 	return nil
 }

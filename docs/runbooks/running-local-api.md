@@ -388,6 +388,18 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl install plan \
 
 The install plan command is dry-run only. It prints actions that would change the host later, but it does not execute them.
 
+Persist the selected web server during an actual install:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl install apply \
+  --profile shared-hosting \
+  --web-server nginx \
+  --postgresql install \
+  --database-url "postgres://motekar:motekar@127.0.0.1:5432/motekar?sslmode=disable"
+```
+
+`install apply` executes the plan against a live database. It writes the selected web server as an immutable server setting and records a `settings.web_server.selected` audit event. Actions not yet supported by the installer (for example `postgresql.install` or `systemd.services`) are skipped and reported, so the apply does not partially change the host. Run database migrations first with `motekar-panel migrate up` because the `database.migrate` action is skipped until full install support exists. A second apply that tries a different web server fails with `ErrWebServerAlreadySelected` and records a `settings.web_server.change_denied` audit event. The installer bootstrapper still refuses `--apply` until full host install support exists.
+
 ## Installer Bootstrapper
 
 The end-user installer should not require cloning the full repository. The first bootstrapper is:

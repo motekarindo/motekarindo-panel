@@ -75,6 +75,39 @@ func TestListRecentRejectsInvalidLimitsBeforeQuery(t *testing.T) {
 	}
 }
 
+func TestRecordRejectsUnknownWebServerActionsAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	writer := NewWriter(&memoryStore{})
+	for _, event := range []Event{
+		{Action: "some.unknown.action", TargetType: "server_setting", TargetID: "web_server"},
+		{Action: ActionWebServerSelected, TargetType: "server_setting", TargetID: "web_server", Metadata: map[string]string{"unknown": "value"}},
+		{Action: ActionWebServerChangeDenied, TargetType: "server_setting", TargetID: "web_server", Metadata: map[string]string{"value": "apache", "unknown": "value"}},
+	} {
+		if _, err := writer.Record(context.Background(), event); !errors.Is(err, ErrInvalidEvent) {
+			t.Fatalf("expected ErrInvalidEvent for %q, got %v", event.Action, err)
+		}
+	}
+}
+
+func TestRecordAcceptsWebServerEvents(t *testing.T) {
+	t.Parallel()
+
+	store := &memoryStore{}
+	writer := NewWriter(store)
+	for _, event := range []Event{
+		{Action: ActionWebServerSelected, TargetType: "server_setting", TargetID: "web_server", Metadata: map[string]string{"value": "nginx"}},
+		{Action: ActionWebServerChangeDenied, TargetType: "server_setting", TargetID: "web_server", Metadata: map[string]string{"value": "apache", "current": "nginx"}},
+	} {
+		if _, err := writer.Record(context.Background(), event); err != nil {
+			t.Fatalf("Record(%q): %v", event.Action, err)
+		}
+	}
+	if len(store.events) != 2 {
+		t.Fatalf("stored events = %d, want 2", len(store.events))
+	}
+}
+
 func TestRecordEnforcesFieldSizeBoundaries(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/motekar/motekar-panel/internal/audit"
 )
 
 const WebServerSettingKey = "web_server"
@@ -35,11 +37,21 @@ type Store interface {
 }
 
 type WebServerService struct {
-	store Store
+	store  Store
+	record auditRecorder
+}
+
+type auditRecorder interface {
+	Record(ctx context.Context, event audit.Event) (audit.Event, error)
 }
 
 func NewWebServerService(store Store) WebServerService {
 	return WebServerService{store: store}
+}
+
+func (s WebServerService) WithAudit(record auditRecorder) WebServerService {
+	s.record = record
+	return s
 }
 
 func ParseWebServer(value string) (WebServer, error) {
@@ -64,6 +76,7 @@ func (s WebServerService) Select(ctx context.Context, value string) (WebServer, 
 		return "", err
 	}
 	if err == nil && current.Value != "" && current.IsImmutable {
+		s.recordChangeDenied(ctx, string(selected), current.Value)
 		return "", fmt.Errorf("%w: %s", ErrWebServerAlreadySelected, current.Value)
 	}
 
@@ -72,10 +85,42 @@ func (s WebServerService) Select(ctx context.Context, value string) (WebServer, 
 		Value:       string(selected),
 		IsImmutable: true,
 	}); err != nil {
+		if errors.Is(err, ErrWebServerAlreadySelected) {
+			s.recordChangeDenied(ctx, string(selected), "")
+		}
 		return "", err
 	}
 
+	s.recordSelected(ctx, string(selected))
 	return selected, nil
+}
+
+func (s WebServerService) recordSelected(ctx context.Context, value string) {
+	if s.record == nil {
+		return
+	}
+	_, _ = s.record.Record(ctx, audit.Event{
+		Action:     audit.ActionWebServerSelected,
+		TargetType: "server_setting",
+		TargetID:   WebServerSettingKey,
+		Metadata:   map[string]string{"value": value},
+	})
+}
+
+func (s WebServerService) recordChangeDenied(ctx context.Context, requested, current string) {
+	if s.record == nil {
+		return
+	}
+	metadata := map[string]string{"value": requested}
+	if current != "" {
+		metadata["current"] = current
+	}
+	_, _ = s.record.Record(ctx, audit.Event{
+		Action:     audit.ActionWebServerChangeDenied,
+		TargetType: "server_setting",
+		TargetID:   WebServerSettingKey,
+		Metadata:   metadata,
+	})
 }
 
 func (s WebServerService) Selected(ctx context.Context) (WebServer, error) {
