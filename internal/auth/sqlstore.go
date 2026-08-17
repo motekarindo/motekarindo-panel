@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/motekar/motekar-panel/internal/audit"
 	"github.com/motekar/motekar-panel/internal/rbac"
 )
 
@@ -18,20 +19,23 @@ func NewSQLBootstrapStore(db *sql.DB) SQLBootstrapStore {
 	return SQLBootstrapStore{db: db}
 }
 
-func (s SQLBootstrapStore) AdminCount(ctx context.Context) (int, error) {
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
 func (s SQLBootstrapStore) CreateAdmin(ctx context.Context, admin BootstrapAdmin) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('motekar.bootstrap_admin', 0))`); err != nil {
+		return err
+	}
+
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrAdminAlreadyExists
+	}
 
 	if _, err := tx.ExecContext(
 		ctx,
@@ -62,6 +66,17 @@ ON CONFLICT (user_id, role_id) DO NOTHING`,
 	}
 	if affected == 0 {
 		return ErrOwnerRoleNotSeeded
+	}
+	if _, err := audit.NewWriter(audit.NewSQLStore(tx)).Record(ctx, audit.Event{
+		Action:     audit.ActionBootstrapAdminCreated,
+		TargetType: "user",
+		TargetID:   admin.ID,
+		Metadata: map[string]string{
+			"email":  admin.Email,
+			"source": "bootstrap",
+		},
+	}); err != nil {
+		return err
 	}
 
 	return tx.Commit()

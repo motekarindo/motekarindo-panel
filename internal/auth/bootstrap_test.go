@@ -99,11 +99,10 @@ type bootstrapMemoryStore struct {
 	admins []BootstrapAdmin
 }
 
-func (s *bootstrapMemoryStore) AdminCount(_ context.Context) (int, error) {
-	return len(s.admins), nil
-}
-
 func (s *bootstrapMemoryStore) CreateAdmin(_ context.Context, admin BootstrapAdmin) error {
+	if len(s.admins) > 0 {
+		return ErrAdminAlreadyExists
+	}
 	s.admins = append(s.admins, admin)
 	return nil
 }

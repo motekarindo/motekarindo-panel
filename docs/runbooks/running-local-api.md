@@ -173,7 +173,7 @@ printf '%s\n' 'change-this-long-password' | \
     --password-stdin
 ```
 
-The password is read from stdin so it does not need to be passed as a command argument. The bootstrap command assigns the first admin to the seeded `owner` role. Do not run this against a production database until the bootstrap flow includes audit events and backup/restore procedures.
+The password is read from stdin so it does not need to be passed as a command argument. The bootstrap command assigns the first admin to the seeded `owner` role and records `auth.bootstrap_admin.created` in the same database transaction. Do not run this against a production database until backup and restore procedures exist.
 
 ## Agent API
 

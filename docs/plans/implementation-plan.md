@@ -192,7 +192,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add CLI or installer bootstrap for creating the first owner/admin user.
 
-**Status:** Password hashing, input validation, one-time bootstrap policy, SQL store foundation, CLI wiring, and owner role assignment completed. Audit event and live PostgreSQL verification are pending.
+**Status:** Completed with transactional audit recording and disposable PostgreSQL integration verification.
 
 **Acceptance criteria:**
 
@@ -201,14 +201,14 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Bootstrap input validates email, display name, and minimum password length.
 - [x] Bootstrap command wires service to the panel database.
 - [x] Owner/admin role is assigned.
-- [ ] Duplicate bootstrap is rejected.
-- [ ] Audit event is recorded.
+- [x] Duplicate bootstrap is rejected.
+- [x] Audit event is recorded.
 
 **Verification:**
 
 - [x] Unit tests for bootstrap policy and password hashing.
 - [x] Unit tests for bootstrap command argument handling without touching PostgreSQL.
-- [ ] Integration tests for bootstrap against disposable PostgreSQL.
+- [x] Integration tests for bootstrap against disposable PostgreSQL.
 
 **Dependencies:** Phase 1.
 
@@ -1086,9 +1086,10 @@ Completed:
 4. Task 1.3: Structured Logging.
 5. Task 1.4: HTTP Server Skeleton.
 6. Task 1.1: PostgreSQL Configuration and Migrations.
+7. Task 2.1: First Admin Bootstrap.
 
 Next:
 
-1. Task 2.1: Complete First Admin Bootstrap audit wiring and disposable PostgreSQL verification.
-2. Task 3.1: Agent Service Skeleton hardening for local-only communication.
-3. Task 2.2: Session Login and Logout after Task 2.1 is complete.
+1. Task 3.1: Agent Service Skeleton hardening for local-only communication.
+2. Task 2.2: Session Login and Logout.
+3. Task 2.3: Complete HTTP authorization middleware after Task 2.2.

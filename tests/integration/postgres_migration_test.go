@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/motekar/motekar-panel/internal/audit"
+	"github.com/motekar/motekar-panel/internal/auth"
 	"github.com/motekar/motekar-panel/internal/database"
 )
 
@@ -175,6 +178,126 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	assertCount(t, ctx, tx, `SELECT count(*) FROM jobs WHERE type = 'integration.smoke' AND status = 'queued'`, 1)
 	assertCount(t, ctx, tx, `SELECT count(*) FROM audit_events WHERE action = 'integration.smoke'`, 1)
 	assertCount(t, ctx, tx, `SELECT count(*) FROM server_settings WHERE key = 'web_server' AND value = 'nginx' AND is_immutable`, 1)
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback smoke transaction: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		ALTER TABLE audit_events
+		ADD CONSTRAINT reject_bootstrap_audit
+		CHECK (action <> 'auth.bootstrap_admin.created')
+	`); err != nil {
+		t.Fatalf("install audit failure constraint: %v", err)
+	}
+	failingService := newTestBootstrapService(db, "30000000-0000-4000-8000-000000000009")
+	_, err = failingService.CreateFirstAdmin(ctx, auth.BootstrapInput{
+		Email:       "failed@example.com",
+		DisplayName: "Failed Owner",
+		Password:    "correct horse battery staple",
+	})
+	if err == nil {
+		t.Fatal("expected bootstrap to fail when audit insert is rejected")
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM users`, 0)
+	assertCount(t, ctx, db, `SELECT count(*) FROM user_roles`, 0)
+	assertCount(t, ctx, db, `SELECT count(*) FROM audit_events`, 0)
+	if _, err := db.ExecContext(ctx, `ALTER TABLE audit_events DROP CONSTRAINT reject_bootstrap_audit`); err != nil {
+		t.Fatalf("remove audit failure constraint: %v", err)
+	}
+
+	type bootstrapResult struct {
+		admin auth.BootstrapAdmin
+		err   error
+	}
+	start := make(chan struct{})
+	results := make(chan bootstrapResult, 2)
+	requests := []struct {
+		id    string
+		input auth.BootstrapInput
+	}{
+		{
+			id: "30000000-0000-4000-8000-000000000010",
+			input: auth.BootstrapInput{
+				Email:       " OWNER@Example.COM ",
+				DisplayName: " Owner ",
+				Password:    "correct horse battery staple",
+			},
+		},
+		{
+			id: "30000000-0000-4000-8000-000000000011",
+			input: auth.BootstrapInput{
+				Email:       " SECOND@Example.COM ",
+				DisplayName: " Second Owner ",
+				Password:    "correct horse battery staple",
+			},
+		},
+	}
+	for _, request := range requests {
+		go func() {
+			<-start
+			admin, err := newTestBootstrapService(db, request.id).CreateFirstAdmin(ctx, request.input)
+			results <- bootstrapResult{admin: admin, err: err}
+		}()
+	}
+	close(start)
+
+	var admin auth.BootstrapAdmin
+	duplicateErrors := 0
+	for range requests {
+		result := <-results
+		switch {
+		case result.err == nil:
+			admin = result.admin
+		case errors.Is(result.err, auth.ErrAdminAlreadyExists):
+			duplicateErrors++
+		default:
+			t.Fatalf("concurrent bootstrap returned unexpected error: %v", result.err)
+		}
+	}
+	if admin.ID == "" || duplicateErrors != 1 {
+		t.Fatalf("concurrent bootstrap created admin %#v with %d duplicate errors", admin, duplicateErrors)
+	}
+	if ok, err := auth.VerifyPassword("correct horse battery staple", admin.PasswordHash); err != nil || !ok {
+		t.Fatalf("verify first admin password: ok=%t err=%v", ok, err)
+	}
+
+	_, err = newTestBootstrapService(db, "30000000-0000-4000-8000-000000000012").CreateFirstAdmin(ctx, auth.BootstrapInput{
+		Email:       "third@example.com",
+		DisplayName: "Third Owner",
+		Password:    "correct horse battery staple",
+	})
+	if !errors.Is(err, auth.ErrAdminAlreadyExists) {
+		t.Fatalf("subsequent bootstrap error = %v, want %v", err, auth.ErrAdminAlreadyExists)
+	}
+
+	assertCount(t, ctx, db, `SELECT count(*) FROM users`, 1)
+	assertCount(t, ctx, db, `
+		SELECT count(*)
+		FROM user_roles ur
+		JOIN roles r ON r.id = ur.role_id
+		WHERE ur.user_id = $1 AND r.name = 'owner'
+	`, 1, admin.ID)
+	assertCount(t, ctx, db, `
+		SELECT count(*)
+		FROM audit_events
+		WHERE actor_user_id IS NULL
+		  AND action = $1
+		  AND target_type = 'user'
+		  AND target_id = $2
+		  AND metadata->>'source' = 'bootstrap'
+	`, 1, audit.ActionBootstrapAdminCreated, admin.ID)
+}
+
+func newTestBootstrapService(db *sql.DB, id string) auth.BootstrapService {
+	return auth.NewBootstrapService(auth.NewSQLBootstrapStore(db)).
+		WithIDGenerator(func() (string, error) { return id, nil }).
+		WithPasswordHashParams(auth.PasswordHashParams{
+			MemoryKB:    1024,
+			Iterations:  1,
+			Parallelism: 1,
+			SaltLength:  8,
+			KeyLength:   16,
+		})
 }
 
 type rowQuerier interface {

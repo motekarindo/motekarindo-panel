@@ -7,10 +7,14 @@ import (
 )
 
 type SQLStore struct {
-	db *sql.DB
+	db sqlExecer
 }
 
-func NewSQLStore(db *sql.DB) SQLStore {
+type sqlExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func NewSQLStore(db sqlExecer) SQLStore {
 	return SQLStore{db: db}
 }
 

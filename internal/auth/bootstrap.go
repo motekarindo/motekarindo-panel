@@ -32,7 +32,6 @@ type BootstrapAdmin struct {
 }
 
 type BootstrapStore interface {
-	AdminCount(ctx context.Context) (int, error)
 	CreateAdmin(ctx context.Context, admin BootstrapAdmin) error
 }
 
@@ -71,14 +70,6 @@ func (s BootstrapService) CreateFirstAdmin(ctx context.Context, input BootstrapI
 	}
 	if len(input.Password) < MinBootstrapPasswordLength {
 		return BootstrapAdmin{}, ErrWeakPassword
-	}
-
-	count, err := s.store.AdminCount(ctx)
-	if err != nil {
-		return BootstrapAdmin{}, err
-	}
-	if count > 0 {
-		return BootstrapAdmin{}, ErrAdminAlreadyExists
 	}
 
 	id, err := s.newID()
