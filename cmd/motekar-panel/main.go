@@ -22,6 +22,7 @@ import (
 	"github.com/motekar/motekar-panel/internal/logging"
 	"github.com/motekar/motekar-panel/internal/rbac"
 	"github.com/motekar/motekar-panel/internal/server"
+	"github.com/motekar/motekar-panel/internal/settings"
 )
 
 func main() {
@@ -154,6 +155,10 @@ func serve() error {
 		AuditEvents:   auditStore,
 		AuditRecorder: audit.NewWriter(auditStore),
 		Jobs:          jobStore,
+		Inventory: agentInventoryFetcher{
+			client:    actionAgentClient,
+			webServer: settingsWebServerReader{service: settings.NewWebServerService(settings.NewSQLStore(db))},
+		},
 		AuditError: func(err error) {
 			log.Error("audit event write failed", "error", err.Error())
 		},

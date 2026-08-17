@@ -27,7 +27,8 @@ func IdempotencyKey(ctx context.Context) string {
 }
 
 type ServerConfig struct {
-	Version buildinfo.BuildInfo
+	Version  buildinfo.BuildInfo
+	Registry *Registry
 }
 
 type Server struct {
@@ -36,9 +37,13 @@ type Server struct {
 }
 
 func NewServer(cfg ServerConfig) *Server {
+	actions := cfg.Registry
+	if actions == nil {
+		actions = DefaultRegistry()
+	}
 	return &Server{
 		version: cfg.Version,
-		actions: DefaultRegistry(),
+		actions: actions,
 	}
 }
 

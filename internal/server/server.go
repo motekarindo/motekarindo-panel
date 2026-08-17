@@ -20,6 +20,7 @@ type Config struct {
 	AuditRecorder AuditRecorder
 	AuditError    func(error)
 	Jobs          JobService
+	Inventory     InventoryFetcher
 	SecureCookies bool
 }
 
@@ -32,6 +33,7 @@ type Server struct {
 	auditRecorder AuditRecorder
 	auditError    func(error)
 	jobs          JobService
+	inventory     InventoryFetcher
 	secureCookies bool
 	loginLimiter  *loginLimiter
 	sourceLimiter *loginLimiter
@@ -51,6 +53,7 @@ func New(cfg Config) *Server {
 		auditRecorder: cfg.AuditRecorder,
 		auditError:    cfg.AuditError,
 		jobs:          cfg.Jobs,
+		inventory:     cfg.Inventory,
 		secureCookies: cfg.SecureCookies,
 		loginLimiter:  newLoginLimiter(loginAttemptLimit),
 		sourceLimiter: newLoginLimiter(loginSourceAttemptLimit),
@@ -68,7 +71,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /jobs/{id}", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobDetail)))
 	mux.Handle("POST /jobs/{id}/retry", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobRetry)))
 	mux.Handle("POST /jobs/{id}/cancel", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobCancel)))
+	mux.Handle("GET /inventory", s.RequirePermission(rbac.PermissionSettingsManage, http.HandlerFunc(s.handleInventory)))
 	mux.HandleFunc("GET /assets/jobs.css", s.handleJobStyles)
+	mux.HandleFunc("GET /assets/inventory.css", s.handleInventoryStyles)
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)

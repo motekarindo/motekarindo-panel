@@ -55,7 +55,7 @@ func TestUnixTransportServesHealthAndCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent capabilities: %v", err)
 	}
-	if len(capabilities.Actions) != 2 || capabilities.Actions[0] != "agent.capabilities" || capabilities.Actions[1] != "agent.health" {
+	if len(capabilities.Actions) != 3 || capabilities.Actions[0] != "agent.capabilities" || capabilities.Actions[1] != "agent.health" || capabilities.Actions[2] != "server.inventory" {
 		t.Fatalf("capabilities = %#v", capabilities.Actions)
 	}
 	result, err := client.Execute(context.Background(), "agent.health", json.RawMessage(`{}`))

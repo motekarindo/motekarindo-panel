@@ -161,7 +161,7 @@ func TestDefaultRegistryExposesOnlyAllowlistedActions(t *testing.T) {
 	registry := DefaultRegistry()
 	actions := registry.Actions()
 
-	want := []string{"agent.capabilities", "agent.health"}
+	want := []string{"agent.capabilities", "agent.health", "server.inventory"}
 	if len(actions) != len(want) {
 		t.Fatalf("actions = %v, want %v", actions, want)
 	}

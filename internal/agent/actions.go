@@ -61,6 +61,15 @@ func DefaultRegistry() *Registry {
 	registry := NewRegistry()
 	registry.MustRegister(MustDefineAction("agent.health", validateEmptyPayload, healthAction))
 	registry.MustRegister(MustDefineAction("agent.capabilities", validateEmptyPayload, capabilitiesAction(registry)))
+	registry.MustRegister(MustDefineAction("server.inventory", validateEmptyPayload, inventoryAction(NewInventoryCollector())))
+	return registry
+}
+
+func NewInventoryRegistry(collector InventoryCollector) *Registry {
+	registry := NewRegistry()
+	registry.MustRegister(MustDefineAction("agent.health", validateEmptyPayload, healthAction))
+	registry.MustRegister(MustDefineAction("agent.capabilities", validateEmptyPayload, capabilitiesAction(registry)))
+	registry.MustRegister(MustDefineAction("server.inventory", validateEmptyPayload, inventoryAction(collector)))
 	return registry
 }
 

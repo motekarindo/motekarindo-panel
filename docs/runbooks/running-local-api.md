@@ -73,6 +73,7 @@ Available endpoints:
 | `GET` | `/api/audit-events` | Recent audit events JSON; requires `audit:read` |
 | `GET` | `/jobs` | Recent background jobs; requires `jobs:manage` |
 | `GET` | `/jobs/{id}` | Job status and structured logs; requires `jobs:manage` |
+| `GET` | `/inventory` | Server overview from the local agent; requires `settings:manage` |
 | `POST` | `/jobs/{id}/retry` | Retry a failed retryable job; requires `jobs:manage` and same-origin request |
 | `POST` | `/jobs/{id}/cancel` | Cancel queued work; requires `jobs:manage` and same-origin request |
 | `GET` | `/healthz` | Liveness check |
@@ -281,7 +282,7 @@ curl --unix-socket .cache/motekar-agent.sock http://agent/capabilities
 Expected response:
 
 ```json
-{"actions":["agent.capabilities","agent.health"]}
+{"actions":["agent.capabilities","agent.health","server.inventory"]}
 ```
 
 Execute an allowlisted health action:
@@ -303,6 +304,15 @@ Expected response:
     "status": "ok"
   }
 }
+```
+
+The `server.inventory` action reports system facts such as OS release, kernel, CPU cores, RAM and swap, free disk, load averages, uptime, interface addresses, systemd presence, and installed service units. Sources that are unavailable (for example `/proc` on a non-Linux host) are reported as empty values rather than failing the whole request, so the panel can render missing data clearly:
+
+```bash
+curl --unix-socket .cache/motekar-agent.sock \
+  -X POST http://agent/actions/server.inventory \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{}}'
 ```
 
 Unknown actions return `404` with `UNKNOWN_ACTION`. Invalid action payloads return `400` with `INVALID_ACTION_PAYLOAD` without exposing validator details.

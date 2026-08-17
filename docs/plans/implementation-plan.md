@@ -490,14 +490,14 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Acceptance criteria:**
 
-- [ ] Admin can view server overview.
-- [ ] Data comes from agent/inventory APIs.
-- [ ] Unsupported/missing data is shown clearly.
+- [x] Admin can view server overview.
+- [x] Data comes from agent/inventory APIs.
+- [x] Unsupported/missing data is shown clearly.
 
 **Verification:**
 
-- [ ] Handler tests.
-- [ ] Browser smoke test.
+- [x] Handler tests.
+- [x] Browser smoke test.
 
 **Dependencies:** Tasks 3.1, 4.3.
 
