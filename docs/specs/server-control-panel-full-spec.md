@@ -44,8 +44,8 @@ The product must be designed for low-resource VPS deployments, but 1 GB RAM is o
 Minimum supported single-user profile:
 
 - 1 vCPU.
-- 1 GB RAM.
-- 20 GB disk.
+- 1 GB nominal RAM; the preflight check accepts at least 960 MB reported by Linux to account for reserved VM memory.
+- 15 GB free disk space.
 - 2 GB swap.
 - Ubuntu 24.04 LTS.
 - Intended for one owner, low traffic, and limited enabled services.
@@ -55,7 +55,7 @@ Minimum supported shared-hosting profile:
 
 - 1 vCPU.
 - 2 GB RAM.
-- 20 GB disk.
+- 20 GB free disk space.
 - 1 GB swap.
 - Ubuntu 24.04 LTS.
 - Intended for multi-account hosting with packages, quotas, and account isolation.

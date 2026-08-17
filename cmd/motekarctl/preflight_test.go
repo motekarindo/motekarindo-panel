@@ -30,6 +30,9 @@ func TestRunPreflightSingleUserSampleWarnsOnOneGB(t *testing.T) {
 	if !strings.Contains(stdout.String(), "WARN\tmemory") {
 		t.Fatalf("expected memory warning, got %q", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "PASS\tdisk\tminimum disk is 15 GB disk") {
+		t.Fatalf("expected single-user disk minimum, got %q", stdout.String())
+	}
 }
 
 func TestRunPreflightUsesCollector(t *testing.T) {

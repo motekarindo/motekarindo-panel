@@ -68,13 +68,13 @@ func TestRunBlocksLowResources(t *testing.T) {
 	}
 }
 
-func TestRunAllowsSingleUserOneGBRAMWithWarning(t *testing.T) {
+func TestRunAllowsSingleUserNominalOneGBRAMWithWarning(t *testing.T) {
 	report := Run(SystemFacts{
 		OS:             osdetect.OSRelease{ID: "ubuntu", VersionID: "24.04"},
 		Profile:        ProfileSingleUser,
 		CPUCores:       1,
-		RAMMB:          1024,
-		DiskGB:         20,
+		RAMMB:          961,
+		DiskGB:         15,
 		SwapMB:         2048,
 		IsRoot:         true,
 		HasSystemd:     true,
@@ -83,10 +83,67 @@ func TestRunAllowsSingleUserOneGBRAMWithWarning(t *testing.T) {
 	})
 
 	if !report.Ready() {
-		t.Fatalf("single-user 1GB report should be ready, blocking failures = %#v", report.BlockingFailures())
+		t.Fatalf("single-user nominal 1GB report should be ready, blocking failures = %#v", report.BlockingFailures())
 	}
 	if !hasWarning(report, "memory") {
 		t.Fatalf("expected non-blocking memory warning, got %#v", report.Checks)
+	}
+}
+
+func TestRunBlocksSingleUserBelowReportedRAMMinimum(t *testing.T) {
+	report := Run(SystemFacts{
+		OS:             osdetect.OSRelease{ID: "ubuntu", VersionID: "24.04"},
+		Profile:        ProfileSingleUser,
+		CPUCores:       1,
+		RAMMB:          959,
+		DiskGB:         15,
+		SwapMB:         2048,
+		IsRoot:         true,
+		HasSystemd:     true,
+		PortsAvailable: map[int]bool{80: true, 443: true},
+		PostgreSQLPlan: PostgreSQLPlanInstall,
+	})
+
+	if !hasFailure(report, "memory") {
+		t.Fatalf("expected memory failure below single-user minimum, got %#v", report.Checks)
+	}
+}
+
+func TestRunBlocksSingleUserBelowFreeDiskMinimum(t *testing.T) {
+	report := Run(SystemFacts{
+		OS:             osdetect.OSRelease{ID: "ubuntu", VersionID: "24.04"},
+		Profile:        ProfileSingleUser,
+		CPUCores:       1,
+		RAMMB:          961,
+		DiskGB:         14,
+		SwapMB:         2048,
+		IsRoot:         true,
+		HasSystemd:     true,
+		PortsAvailable: map[int]bool{80: true, 443: true},
+		PostgreSQLPlan: PostgreSQLPlanInstall,
+	})
+
+	if !hasFailure(report, "disk") {
+		t.Fatalf("expected disk failure below single-user minimum, got %#v", report.Checks)
+	}
+}
+
+func TestRunBlocksSharedHostingBelowFreeDiskMinimum(t *testing.T) {
+	report := Run(SystemFacts{
+		OS:             osdetect.OSRelease{ID: "ubuntu", VersionID: "24.04"},
+		Profile:        ProfileSharedHosting,
+		CPUCores:       1,
+		RAMMB:          2048,
+		DiskGB:         19,
+		SwapMB:         1024,
+		IsRoot:         true,
+		HasSystemd:     true,
+		PortsAvailable: map[int]bool{80: true, 443: true},
+		PostgreSQLPlan: PostgreSQLPlanInstall,
+	})
+
+	if !hasFailure(report, "disk") {
+		t.Fatalf("expected disk failure below shared-hosting minimum, got %#v", report.Checks)
 	}
 }
 

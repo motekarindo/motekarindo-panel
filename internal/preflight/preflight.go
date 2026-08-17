@@ -11,9 +11,10 @@ import (
 
 const (
 	MinimumCPUCores             = 1
-	MinimumSingleUserRAMMB      = 1024
+	MinimumSingleUserRAMMB      = 960
 	MinimumSharedHostingRAMMB   = 2048
-	MinimumDiskGB               = 20
+	MinimumSingleUserDiskGB     = 15
+	MinimumSharedHostingDiskGB  = 20
 	MinimumSingleUserSwapMB     = 2048
 	MinimumSharedHostingSwapMB  = 1024
 	RecommendedSingleUserRAMMB  = 2048
@@ -113,7 +114,7 @@ func Run(facts SystemFacts) Report {
 		checkOS(facts.OS),
 		minimum("cpu", facts.CPUCores, MinimumCPUCores, "core(s)"),
 		checkMemory(profile, facts.RAMMB),
-		minimum("disk", facts.DiskGB, MinimumDiskGB, "GB disk"),
+		checkDisk(profile, facts.DiskGB),
 		checkSwap(profile, facts.SwapMB),
 		boolean("root", facts.IsRoot, "installer must run as root"),
 		boolean("systemd", facts.HasSystemd, "systemd is required"),
@@ -158,6 +159,13 @@ func checkMemory(profile InstallProfile, got int) Check {
 		return minimum("memory", got, MinimumSingleUserRAMMB, "MB RAM")
 	}
 	return minimum("memory", got, MinimumSharedHostingRAMMB, "MB RAM")
+}
+
+func checkDisk(profile InstallProfile, got int) Check {
+	if profile == ProfileSingleUser {
+		return minimum("disk", got, MinimumSingleUserDiskGB, "GB disk")
+	}
+	return minimum("disk", got, MinimumSharedHostingDiskGB, "GB disk")
 }
 
 func checkSwap(profile InstallProfile, got int) Check {

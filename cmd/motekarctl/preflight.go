@@ -91,9 +91,11 @@ func parsePreflightOptions(args []string) (preflightOptions, error) {
 
 func samplePreflightFacts(profile preflight.InstallProfile, postgresqlPlan preflight.PostgreSQLPlan) preflight.SystemFacts {
 	ramMB := preflight.MinimumSharedHostingRAMMB
+	diskGB := preflight.MinimumSharedHostingDiskGB
 	swapMB := preflight.MinimumSharedHostingSwapMB
 	if profile == preflight.ProfileSingleUser {
 		ramMB = preflight.MinimumSingleUserRAMMB
+		diskGB = preflight.MinimumSingleUserDiskGB
 		swapMB = preflight.MinimumSingleUserSwapMB
 	}
 
@@ -102,7 +104,7 @@ func samplePreflightFacts(profile preflight.InstallProfile, postgresqlPlan prefl
 		Profile:        profile,
 		CPUCores:       preflight.MinimumCPUCores,
 		RAMMB:          ramMB,
-		DiskGB:         preflight.MinimumDiskGB,
+		DiskGB:         diskGB,
 		SwapMB:         swapMB,
 		IsRoot:         true,
 		HasSystemd:     true,

@@ -25,6 +25,7 @@ This test must not:
 - Root or sudo shell.
 - Fresh server.
 - Rebuildable after test.
+- At least 15 GB free disk space for `single-user` or 20 GB for `shared-hosting`.
 
 Use `single-user` for a 1 GB RAM personal VPS. Use `shared-hosting` for a real shared-hosting target.
 
@@ -89,7 +90,9 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight \
 ## Expected Result
 
 - Ubuntu 24.04 should pass OS detection.
-- 1 GB RAM should warn in `single-user`.
+- A nominal 1 GB VM reporting at least 960 MB RAM should warn but pass in `single-user`.
 - 1 GB RAM should fail in `shared-hosting`.
+- 15 GB free disk space should pass in `single-user`.
+- Less than 20 GB free disk space should fail in `shared-hosting`.
 - Dry-run output must include `No changes were made.`
 - Any `WOULD_CHANGE` actions are informational only and must not be executed by this command.

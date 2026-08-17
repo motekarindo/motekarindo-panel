@@ -375,7 +375,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add end-user Bash bootstrapper so operators can run preflight and dry-run without cloning the repository.
 
-**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper and release artifact pipeline completed. Actual apply mode is pending.
+**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper, release artifact pipeline, and manual VPS verification completed. Actual apply mode is pending.
 
 **Acceptance criteria:**
 
@@ -393,7 +393,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 - [x] `make test-installers` passes with fake `motekarctl`.
 - [x] `make test-release-artifacts` passes and verifies checksums.
-- [ ] Manual test downloads script from GitHub Releases on disposable Ubuntu 24.04 VPS.
+- [x] Manual test downloads script from GitHub Releases on disposable Ubuntu 24.04 VPS.
 
 **Dependencies:** Task 4.2.
 
@@ -424,18 +424,19 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add checks for CPU, RAM, disk, swap, root privileges, systemd, ports, and PostgreSQL availability/install plan.
 
-**Status:** Host-safe profile-aware preflight logic and real read-only collector completed. VPS manual verification is pending.
+**Status:** Host-safe profile-aware preflight logic, real read-only collector, and VPS manual verification completed.
 
 **Acceptance criteria:**
 
 - [x] Preflight reports pass/fail for each requirement.
 - [x] Minimum server requirements match spec.
-- [x] Single-user profile allows 1 GB RAM with warning and stronger swap requirement.
+- [x] Single-user profile allows a nominal 1 GB VM reporting at least 960 MB RAM, with a warning and stronger swap requirement.
+- [x] Single-user profile requires 15 GB free disk space; shared-hosting still requires 20 GB.
 - [x] Shared-hosting profile still blocks 1 GB RAM.
 - [x] Unsafe install state blocks installation.
 - [x] Host-safe sample CLI exists.
 - [x] Real installer collector gathers OS, CPU, RAM, disk, swap, root, systemd, and port facts.
-- [ ] Real installer collector is verified on disposable Ubuntu 24.04 VPS.
+- [x] Real installer collector is verified on disposable Ubuntu 24.04 VPS.
 
 **Verification:**
 
@@ -444,7 +445,7 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] `make build` passes.
 - [x] `motekarctl preflight sample` reports all sample checks as pass.
 - [x] Unit tests cover collector fixture parsing and CLI preflight behavior.
-- [ ] Manual test on Ubuntu 24.04 environment.
+- [x] Manual test on Ubuntu 24.04 environment.
 
 **Dependencies:** Task 4.1.
 
