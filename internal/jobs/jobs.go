@@ -27,11 +27,13 @@ const (
 	StatusRunning   Status = "running"
 	StatusSucceeded Status = "succeeded"
 	StatusFailed    Status = "failed"
+	StatusCancelled Status = "cancelled"
 )
 
 var (
 	ErrInvalidJob        = errors.New("invalid job")
 	ErrNoJob             = errors.New("no job available")
+	ErrJobNotFound       = errors.New("job not found")
 	ErrInvalidTransition = errors.New("invalid job state transition")
 )
 
@@ -44,6 +46,7 @@ type Job struct {
 	Payload        json.RawMessage
 	Attempts       int
 	MaxAttempts    int
+	Retryable      bool
 	ClaimToken     string
 	RunAfter       time.Time
 	LeaseExpiresAt time.Time
@@ -77,15 +80,23 @@ type Result struct {
 }
 
 type Log struct {
-	Level   string
-	Message string
+	ID        int64
+	Level     string
+	Message   string
+	CreatedAt time.Time
+}
+
+type Mutation struct {
+	ActorUserID string
+	IPAddress   string
+	UserAgent   string
 }
 
 type Store interface {
 	Enqueue(ctx context.Context, job Job) error
 	ClaimOne(ctx context.Context, now time.Time, leaseExpiresAt time.Time) (Job, error)
 	MarkSucceeded(ctx context.Context, job Job, finishedAt time.Time, result Result) error
-	MarkFailed(ctx context.Context, job Job, final bool, runAfter time.Time, updatedAt time.Time, finishedAt time.Time, message string) error
+	MarkFailed(ctx context.Context, job Job, final bool, retryable bool, runAfter time.Time, updatedAt time.Time, finishedAt time.Time, message string) error
 }
 
 type Queue struct {
@@ -162,6 +173,7 @@ func (q Queue) Enqueue(ctx context.Context, input EnqueueInput) (Job, error) {
 		IdempotencyKey: input.IdempotencyKey,
 		Payload:        input.Payload,
 		MaxAttempts:    input.MaxAttempts,
+		Retryable:      true,
 		RunAfter:       input.RunAfter,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -203,7 +215,7 @@ func (q Queue) Fail(ctx context.Context, job Job, input FailureInput) error {
 		runAfter = now.Add(input.Backoff)
 		finishedAt = time.Time{}
 	}
-	return q.store.MarkFailed(ctx, job, final, runAfter, now, finishedAt, input.Message)
+	return q.store.MarkFailed(ctx, job, final, !input.Permanent, runAfter, now, finishedAt, input.Message)
 }
 
 func newUUID() (string, error) {
@@ -222,4 +234,22 @@ func newUUID() (string, error) {
 		bytes[8:10],
 		bytes[10:16],
 	), nil
+}
+
+func validJobID(id string) bool {
+	if len(id) != 36 {
+		return false
+	}
+	for index, value := range []byte(id) {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if value != '-' {
+				return false
+			}
+			continue
+		}
+		if !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F')) {
+			return false
+		}
+	}
+	return true
 }

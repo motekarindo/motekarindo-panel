@@ -76,8 +76,8 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
-	if len(migrations) != 5 {
-		t.Fatalf("loaded %d migrations, want 5", len(migrations))
+	if len(migrations) != 6 {
+		t.Fatalf("loaded %d migrations, want 6", len(migrations))
 	}
 
 	runner := database.NewRunner(database.NewSQLStore(db))
@@ -113,8 +113,8 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply audit hardening migration: %v", err)
 	}
-	if len(ran) != 2 {
-		t.Fatalf("applied %d remaining migrations, want 2", len(ran))
+	if len(ran) != 3 {
+		t.Fatalf("applied %d remaining migrations, want 3", len(ran))
 	}
 	assertCount(t, ctx, db, `
 		SELECT count(*) FROM audit_events
@@ -134,7 +134,7 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		t.Fatalf("reapplied %d migrations, want none", len(ran))
 	}
 
-	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 5)
+	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 6)
 	assertCount(t, ctx, db, `SELECT count(*) FROM roles`, 4)
 	assertCount(t, ctx, db, `SELECT count(*) FROM permissions`, 13)
 	assertRolePermissions(t, ctx, db, "owner",
@@ -635,10 +635,10 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		t.Fatalf("clean up rollback session: %v", err)
 	}
 
-	assertPostgresJobQueue(t, ctx, db)
+	assertPostgresJobQueue(t, ctx, db, admin.ID)
 }
 
-func assertPostgresJobQueue(t *testing.T, ctx context.Context, db *sql.DB) {
+func assertPostgresJobQueue(t *testing.T, ctx context.Context, db *sql.DB, actorUserID string) {
 	t.Helper()
 	if _, err := db.ExecContext(ctx, `
 		CREATE FUNCTION slow_test_job_claim() RETURNS trigger AS $$
@@ -803,6 +803,63 @@ func assertPostgresJobQueue(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE status = 'succeeded' AND result_code = 'ok' AND result = '{"status":"healthy"}'::jsonb`, 1)
 	assertCount(t, ctx, db, `SELECT count(*) FROM job_logs WHERE level = 'info' AND message = '[REDACTED]'`, 1)
+
+	listed, err := store.ListRecent(ctx, 100)
+	if err != nil || len(listed) != 1 || listed[0].ID != "70000000-0000-4000-8000-000000000008" {
+		t.Fatalf("list recent jobs = %#v error=%v", listed, err)
+	}
+	storedJob, err := store.Get(ctx, listed[0].ID)
+	if err != nil || storedJob.ResultCode != "ok" {
+		t.Fatalf("get job = %#v error=%v", storedJob, err)
+	}
+	storedLogs, err := store.ListLogs(ctx, listed[0].ID, 500)
+	if err != nil || len(storedLogs) != 1 || storedLogs[0].Message != "[REDACTED]" {
+		t.Fatalf("list job logs = %#v error=%v", storedLogs, err)
+	}
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000010", "", 1)
+	retryJob, err := store.ClaimOne(ctx, now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim retry fixture: %v", err)
+	}
+	if err := jobs.NewQueue(store).WithClock(func() time.Time { return now }).Fail(ctx, retryJob, jobs.FailureInput{Message: "retryable failure"}); err != nil {
+		t.Fatalf("fail retry fixture: %v", err)
+	}
+	mutation := jobs.Mutation{ActorUserID: actorUserID, IPAddress: "192.0.2.10", UserAgent: "integration-browser"}
+	if err := store.Retry(ctx, retryJob.ID, mutation); err != nil {
+		t.Fatalf("retry failed job: %v", err)
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE id = $1 AND status = 'queued' AND attempts = 0 AND retryable`, 1, retryJob.ID)
+	assertCount(t, ctx, db, `SELECT count(*) FROM audit_events WHERE action = 'job.retried' AND actor_user_id = $1 AND target_id = $2`, 1, actorUserID, retryJob.ID)
+	if err := store.Cancel(ctx, retryJob.ID, mutation); err != nil {
+		t.Fatalf("cancel queued job: %v", err)
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE id = $1 AND status = 'cancelled' AND NOT retryable`, 1, retryJob.ID)
+	assertCount(t, ctx, db, `SELECT count(*) FROM audit_events WHERE action = 'job.cancelled' AND actor_user_id = $1 AND target_id = $2`, 1, actorUserID, retryJob.ID)
+	if err := store.Retry(ctx, retryJob.ID, mutation); !errors.Is(err, jobs.ErrInvalidTransition) {
+		t.Fatalf("retry cancelled job = %v, want %v", err, jobs.ErrInvalidTransition)
+	}
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000011", "", 1)
+	rollbackJob, err := store.ClaimOne(ctx, now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim mutation rollback fixture: %v", err)
+	}
+	if err := jobs.NewQueue(store).WithClock(func() time.Time { return now }).Fail(ctx, rollbackJob, jobs.FailureInput{Message: "retryable rollback fixture"}); err != nil {
+		t.Fatalf("fail mutation rollback fixture: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE audit_events RENAME TO audit_events_unavailable`); err != nil {
+		t.Fatalf("make audit table unavailable for job mutation: %v", err)
+	}
+	if err := store.Retry(ctx, rollbackJob.ID, mutation); err == nil {
+		t.Fatal("expected retry to fail when audit table is unavailable")
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE id = $1 AND status = 'failed'`, 1, rollbackJob.ID)
+	if _, err := db.ExecContext(ctx, `ALTER TABLE audit_events_unavailable RENAME TO audit_events`); err != nil {
+		t.Fatalf("restore audit table after job mutation: %v", err)
+	}
 }
 
 func newTestBootstrapService(db *sql.DB, id string) auth.BootstrapService {

@@ -19,6 +19,7 @@ type Config struct {
 	AuditEvents   AuditEventReader
 	AuditRecorder AuditRecorder
 	AuditError    func(error)
+	Jobs          JobService
 	SecureCookies bool
 }
 
@@ -30,6 +31,7 @@ type Server struct {
 	auditEvents   AuditEventReader
 	auditRecorder AuditRecorder
 	auditError    func(error)
+	jobs          JobService
 	secureCookies bool
 	loginLimiter  *loginLimiter
 	sourceLimiter *loginLimiter
@@ -48,6 +50,7 @@ func New(cfg Config) *Server {
 		auditEvents:   cfg.AuditEvents,
 		auditRecorder: cfg.AuditRecorder,
 		auditError:    cfg.AuditError,
+		jobs:          cfg.Jobs,
 		secureCookies: cfg.SecureCookies,
 		loginLimiter:  newLoginLimiter(loginAttemptLimit),
 		sourceLimiter: newLoginLimiter(loginSourceAttemptLimit),
@@ -61,6 +64,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /", home)
 	mux.Handle("GET /audit-events", s.RequirePermission(rbac.PermissionAuditRead, http.HandlerFunc(s.handleAuditEventsHTML)))
 	mux.Handle("GET /api/audit-events", s.RequirePermission(rbac.PermissionAuditRead, http.HandlerFunc(s.handleAuditEventsAPI)))
+	mux.Handle("GET /jobs", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobs)))
+	mux.Handle("GET /jobs/{id}", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobDetail)))
+	mux.Handle("POST /jobs/{id}/retry", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobRetry)))
+	mux.Handle("POST /jobs/{id}/cancel", s.RequirePermission(rbac.PermissionJobsManage, http.HandlerFunc(s.handleJobCancel)))
+	mux.HandleFunc("GET /assets/jobs.css", s.handleJobStyles)
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("GET /version", s.handleVersion)

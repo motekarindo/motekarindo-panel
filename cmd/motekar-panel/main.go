@@ -110,7 +110,8 @@ func serve() error {
 
 	readinessAgentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
 	actionAgentClient := agent.NewUnixClient(cfg.AgentSocketPath, 5*time.Minute)
-	queue := jobs.NewQueue(jobs.NewSQLStore(db))
+	jobStore := jobs.NewSQLStore(db)
+	queue := jobs.NewQueue(jobStore)
 	worker := jobs.NewWorker(queue, jobs.ExecutorFunc(func(ctx context.Context, job jobs.Job) (jobs.Result, error) {
 		result, err := actionAgentClient.ExecuteJob(ctx, job.Type, job.Payload, job.IdempotencyKey)
 		if err != nil {
@@ -152,6 +153,7 @@ func serve() error {
 		Authorization: authorization,
 		AuditEvents:   auditStore,
 		AuditRecorder: audit.NewWriter(auditStore),
+		Jobs:          jobStore,
 		AuditError: func(err error) {
 			log.Error("audit event write failed", "error", err.Error())
 		},

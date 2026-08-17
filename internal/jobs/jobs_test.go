@@ -107,7 +107,7 @@ func (s *memoryStore) MarkSucceeded(context.Context, Job, time.Time, Result) err
 	return nil
 }
 
-func (s *memoryStore) MarkFailed(_ context.Context, _ Job, final bool, runAfter time.Time, _ time.Time, finishedAt time.Time, _ string) error {
+func (s *memoryStore) MarkFailed(_ context.Context, _ Job, final bool, _ bool, runAfter time.Time, _ time.Time, finishedAt time.Time, _ string) error {
 	s.failedFinal = final
 	s.failedRunAfter = runAfter
 	s.failedFinishedAt = finishedAt

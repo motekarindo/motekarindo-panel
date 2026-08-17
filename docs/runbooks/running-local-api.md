@@ -71,6 +71,10 @@ Available endpoints:
 | `POST` | `/logout` | Invalidate the current session |
 | `GET` | `/audit-events` | Recent audit events HTML view; requires `audit:read` |
 | `GET` | `/api/audit-events` | Recent audit events JSON; requires `audit:read` |
+| `GET` | `/jobs` | Recent background jobs; requires `jobs:manage` |
+| `GET` | `/jobs/{id}` | Job status and structured logs; requires `jobs:manage` |
+| `POST` | `/jobs/{id}/retry` | Retry a failed retryable job; requires `jobs:manage` and same-origin request |
+| `POST` | `/jobs/{id}/cancel` | Cancel queued work; requires `jobs:manage` and same-origin request |
 | `GET` | `/healthz` | Liveness check |
 | `GET` | `/readyz` | Readiness check |
 | `GET` | `/version` | Build/version metadata |
@@ -157,6 +161,7 @@ Current migration files:
 - `services/migrations/000003_user_account_assignments.sql`
 - `services/migrations/000004_audit_event_hardening.sql`
 - `services/migrations/000005_job_runtime_hardening.sql`
+- `services/migrations/000006_job_ui_management.sql`
 
 The migration runner records applied versions in `schema_migrations`.
 

@@ -15,6 +15,8 @@ const (
 	ActionLoginFailed           = "auth.login.failed"
 	ActionLoginRejected         = "auth.login.rejected"
 	ActionLogoutSucceeded       = "auth.logout.succeeded"
+	ActionJobRetried            = "job.retried"
+	ActionJobCancelled          = "job.cancelled"
 	MaxRecentEvents             = 100
 	maxActionBytes              = 128
 	maxTargetTypeBytes          = 64
@@ -119,6 +121,8 @@ var auditMetadataKeys = map[string]map[string]bool{
 	ActionLoginFailed:           {},
 	ActionLoginRejected:         {"reason": true},
 	ActionLogoutSucceeded:       {},
+	ActionJobRetried:            {},
+	ActionJobCancelled:          {},
 }
 
 func newUUID() (string, error) {

@@ -358,16 +358,18 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add admin UI for job list, status detail, logs, retry, and cancel where safe.
 
+**Status:** Completed. The protected server-rendered job ledger exposes recent status, structured logs, audited retry for retryable failures, and cancellation for queued work only.
+
 **Acceptance criteria:**
 
-- [ ] Admin can see queued/running/failed/succeeded jobs.
-- [ ] Admin can inspect job logs.
-- [ ] Admin can retry failed retryable jobs.
+- [x] Admin can see queued/running/failed/succeeded jobs.
+- [x] Admin can inspect job logs.
+- [x] Admin can retry failed retryable jobs.
 
 **Verification:**
 
-- [ ] Handler tests.
-- [ ] Browser smoke test.
+- [x] Handler tests.
+- [x] Browser smoke test.
 
 **Dependencies:** Task 3.3.
 
