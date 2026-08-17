@@ -309,7 +309,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add typed allowlisted actions with payload validation.
 
-**Status:** Initial safe registry completed with `agent.health` and `agent.capabilities`. Privileged OS actions are intentionally not implemented yet.
+**Status:** Completed with a mandatory typed action factory, strict payload decoding, per-action validators, bounded HTTP requests, and the safe `agent.health` and `agent.capabilities` actions. Privileged OS actions remain intentionally deferred to their feature tasks.
 
 **Acceptance criteria:**
 
@@ -317,7 +317,7 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Invalid JSON payload is rejected at HTTP boundary.
 - [x] Actions return structured result and logs.
 - [x] No action accepts raw shell strings.
-- [ ] Future privileged actions include explicit payload validation per action.
+- [x] Future privileged actions include explicit payload validation per action.
 
 **Verification:**
 

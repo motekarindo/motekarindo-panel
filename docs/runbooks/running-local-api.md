@@ -297,7 +297,9 @@ Expected response:
 }
 ```
 
-Unknown actions return `404` with `UNKNOWN_ACTION`. This is intentional: future privileged server operations must be explicitly registered in the agent action registry.
+Unknown actions return `404` with `UNKNOWN_ACTION`. Invalid action payloads return `400` with `INVALID_ACTION_PAYLOAD` without exposing validator details.
+
+Every action must be created through the generic typed action factory with a non-nil validator. JSON decoding rejects unknown fields and trailing values before the typed handler runs. The HTTP envelope accepts only `application/json` and is limited to 64 KiB. This is intentional: future privileged server operations cannot be registered as raw shell-string handlers and must define an explicit payload type, validator, and allowlisted implementation.
 
 ## Agent Environment Variables
 
