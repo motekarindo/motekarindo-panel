@@ -97,3 +97,12 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight \
 - Less than 20 GB free disk space should fail in `shared-hosting`.
 - Dry-run output must include `No changes were made.`
 - Any `WOULD_CHANGE` actions are informational only and must not be executed by this command.
+
+## Verification Record
+
+Re-verified on 2026-08-17 on a disposable Ubuntu 24.04 VPS (2 vCPU, 2048 MB RAM, 24 GB disk).
+
+- `single-user` dry-run passed: OS/cpu/disk/root/systemd/postgresql/ports all PASS; memory (1967 MB) and swap (2047 MB) reported as WARN with the expected recommendation; plan printed `WOULD_CHANGE` actions and completed without changes.
+- `shared-hosting` dry-run correctly blocked at preflight with `FAIL memory` because 2048 MB is the minimum and the VPS reported 1967 MB; `motekarctl: preflight has blocking failures` prevented the plan from running. This matches the requirement that shared-hosting still blocks a 1 GB VM.
+- `--apply` was refused with `error: --apply is not available yet; this bootstrapper is dry-run only`.
+- The release script downloaded `motekarctl-linux-amd64` from GitHub Releases and verified its checksum (`motekarctl: OK`) before running preflight.

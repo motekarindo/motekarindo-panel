@@ -381,7 +381,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add end-user Bash bootstrapper so operators can run preflight and dry-run without cloning the repository.
 
-**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper, release artifact pipeline, and manual VPS verification completed. Actual apply mode is pending.
+**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper, release artifact pipeline, and manual VPS verification completed (re-verified 2026-08-17). Actual apply mode is pending and intentionally refused until install support exists.
 
 **Acceptance criteria:**
 
