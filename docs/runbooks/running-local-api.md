@@ -5,9 +5,10 @@ This document explains how to run the current Motekar Panel API and agent during
 ## Prerequisites
 
 - Go 1.24+
+- PostgreSQL 16+
 - A shell environment that can bind to localhost ports
 
-PostgreSQL is part of the product architecture, but the current API skeleton does not connect to PostgreSQL yet. Database setup will be added with the migration layer.
+Use only a disposable local database while backup and restore procedures remain pending.
 
 ## Development Commands
 
@@ -29,10 +30,11 @@ Format Go files:
 make fmt
 ```
 
-Run the panel API:
+After starting the agent, applying migrations, and bootstrapping the first admin, run the panel API:
 
 ```bash
-make dev
+MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslmode=disable" \
+  make dev
 ```
 
 `make dev` runs:
@@ -62,6 +64,9 @@ Available endpoints:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Minimal HTML landing page |
+| `GET` | `/login` | Login form |
+| `POST` | `/login` | Create an authenticated session |
+| `POST` | `/logout` | Invalidate the current session |
 | `GET` | `/healthz` | Liveness check |
 | `GET` | `/readyz` | Readiness check |
 | `GET` | `/version` | Build/version metadata |
@@ -90,7 +95,7 @@ Expected response:
 {"status":"ready"}
 ```
 
-Readiness returns `503` when the local agent is unavailable. Start the agent with the same `MOTEKAR_AGENT_SOCKET` value before checking `/readyz`.
+Readiness returns `503` when PostgreSQL or the local agent is unavailable. Start the agent with the same `MOTEKAR_AGENT_SOCKET` value before checking `/readyz`.
 
 Version check:
 
@@ -115,7 +120,7 @@ Expected response shape:
 |---|---:|---|
 | `MOTEKAR_PANEL_ADDR` | `:8080` | Panel API listen address |
 | `MOTEKAR_AGENT_SOCKET` | `.cache/motekar-agent.sock` | Local agent Unix socket path |
-| `MOTEKAR_DATABASE_URL` | empty | PostgreSQL connection string |
+| `MOTEKAR_DATABASE_URL` | empty | Required PostgreSQL connection string for database and serve commands |
 | `MOTEKAR_MIGRATIONS_DIR` | `services/migrations` | SQL migration directory |
 | `MOTEKAR_ENV` | `development` | Runtime environment label |
 | `MOTEKAR_LOG_LEVEL` | `info` | Structured log level |
@@ -160,7 +165,7 @@ MOTEKAR_TEST_ALLOW_DATABASE=1 \
   make test-integration-postgres
 ```
 
-The test verifies migration idempotency, RBAC seeds, web-server settings, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
+The test verifies migration idempotency, RBAC seeds, first-admin bootstrap, session login/logout, hashed token storage, web-server settings, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
 
 ## First Admin Bootstrap
 
@@ -177,6 +182,30 @@ printf '%s\n' 'change-this-long-password' | \
 ```
 
 The password is read from stdin so it does not need to be passed as a command argument. The bootstrap command assigns the first admin to the seeded `owner` role and records `auth.bootstrap_admin.created` in the same database transaction. Do not run this against a production database until backup and restore procedures exist.
+
+## Session Login and Logout
+
+Open `http://127.0.0.1:8080/login` in a browser or create a session with:
+
+```bash
+curl -i -c /tmp/motekar-cookies.txt \
+  -H 'Origin: http://127.0.0.1:8080' \
+  --data-urlencode 'email=owner@example.com' \
+  --data-urlencode 'password=change-this-long-password' \
+  http://127.0.0.1:8080/login
+```
+
+A successful login returns `303 See Other` and sets `motekar_session` with `HttpOnly` and `SameSite=Lax`. When `MOTEKAR_ENV=production`, the cookie also uses `Secure` and auth responses include HSTS. Only a SHA-256 hash of the random token is stored in PostgreSQL, and sessions expire after 24 hours.
+
+Log out with:
+
+```bash
+curl -i -b /tmp/motekar-cookies.txt -c /tmp/motekar-cookies.txt \
+  -H 'Origin: http://127.0.0.1:8080' \
+  -X POST http://127.0.0.1:8080/logout
+```
+
+Logout deletes the stored session and expires the browser cookie. Login failures intentionally return the same response for unknown users, incorrect passwords, and inactive users. Auth POST requests require a matching `Origin` or `Referer`; repeated failures are throttled per source and account, with a coarser per-source limit.
 
 ## Agent API
 

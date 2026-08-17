@@ -286,6 +286,82 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		  AND target_id = $2
 		  AND metadata->>'source' = 'bootstrap'
 	`, 1, audit.ActionBootstrapAdminCreated, admin.ID)
+
+	sessionNow := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	sessionService := auth.NewSessionService(auth.NewSQLSessionStore(db)).
+		WithClock(func() time.Time { return sessionNow }).
+		WithIDGenerator(func() (string, error) {
+			return "30000000-0000-4000-8000-000000000020", nil
+		}).
+		WithTokenGenerator(func() (string, error) { return "raw-integration-session-token", nil })
+	session, err := sessionService.Login(ctx, auth.LoginInput{
+		Email:     strings.ToUpper(admin.Email),
+		Password:  "correct horse battery staple",
+		IPAddress: "192.0.2.10",
+		UserAgent: "integration-browser",
+	})
+	if err != nil {
+		t.Fatalf("login first admin: %v", err)
+	}
+	if session.Token != "raw-integration-session-token" || !session.ExpiresAt.Equal(sessionNow.Add(auth.DefaultSessionDuration)) {
+		t.Fatalf("unexpected login session: %#v", session)
+	}
+
+	var storedTokenHash string
+	var storedIPAddress string
+	var storedUserAgent string
+	if err := db.QueryRowContext(ctx, `
+		SELECT token_hash, host(ip_address), user_agent
+		FROM sessions
+		WHERE user_id = $1
+	`, admin.ID).Scan(&storedTokenHash, &storedIPAddress, &storedUserAgent); err != nil {
+		t.Fatalf("read stored session: %v", err)
+	}
+	if storedTokenHash == "" || storedTokenHash == session.Token || storedIPAddress != "192.0.2.10" || storedUserAgent != "integration-browser" {
+		t.Fatalf("stored session = hash:%q ip:%q user-agent:%q", storedTokenHash, storedIPAddress, storedUserAgent)
+	}
+	principal, err := sessionService.Validate(ctx, session.Token)
+	if err != nil {
+		t.Fatalf("validate session: %v", err)
+	}
+	if principal.UserID != admin.ID || principal.Email != admin.Email || !principal.ExpiresAt.Equal(session.ExpiresAt) {
+		t.Fatalf("validated principal = %#v", principal)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE sessions SET expires_at = $1 WHERE user_id = $2`, sessionNow, admin.ID); err != nil {
+		t.Fatalf("expire session: %v", err)
+	}
+	if _, err := sessionService.Validate(ctx, session.Token); !errors.Is(err, auth.ErrInvalidSession) {
+		t.Fatalf("expired session validation error = %v, want %v", err, auth.ErrInvalidSession)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE sessions SET expires_at = $1 WHERE user_id = $2`, session.ExpiresAt, admin.ID); err != nil {
+		t.Fatalf("restore session expiry: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE users SET is_active = FALSE WHERE id = $1`, admin.ID); err != nil {
+		t.Fatalf("deactivate session user: %v", err)
+	}
+	if _, err := sessionService.Validate(ctx, session.Token); !errors.Is(err, auth.ErrInvalidSession) {
+		t.Fatalf("inactive user session validation error = %v, want %v", err, auth.ErrInvalidSession)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE users SET is_active = TRUE WHERE id = $1`, admin.ID); err != nil {
+		t.Fatalf("reactivate session user: %v", err)
+	}
+
+	for _, input := range []auth.LoginInput{
+		{Email: "unknown@example.com", Password: "correct horse battery staple"},
+		{Email: admin.Email, Password: "wrong password"},
+	} {
+		if _, err := sessionService.Login(ctx, input); !errors.Is(err, auth.ErrInvalidCredentials) {
+			t.Fatalf("invalid login error = %v, want %v", err, auth.ErrInvalidCredentials)
+		}
+	}
+
+	if err := sessionService.Logout(ctx, session.Token); err != nil {
+		t.Fatalf("logout first admin: %v", err)
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM sessions`, 0)
+	if _, err := sessionService.Validate(ctx, session.Token); !errors.Is(err, auth.ErrInvalidSession) {
+		t.Fatalf("logged-out session validation error = %v, want %v", err, auth.ErrInvalidSession)
+	}
 }
 
 func newTestBootstrapService(db *sql.DB, id string) auth.BootstrapService {

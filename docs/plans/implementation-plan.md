@@ -218,17 +218,19 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add login, logout, secure cookies, and session storage.
 
+**Status:** Completed with hashed database session tokens, generic invalid-credential handling, bounded login throttling, production-only secure cookies, and logout invalidation.
+
 **Acceptance criteria:**
 
-- [ ] Valid admin can log in.
-- [ ] Invalid credentials fail without leaking user existence.
-- [ ] Cookies are httpOnly, secure in production, and sameSite.
-- [ ] Logout invalidates the session.
+- [x] Valid admin can log in.
+- [x] Invalid credentials fail without leaking user existence.
+- [x] Cookies are httpOnly, secure in production, and sameSite.
+- [x] Logout invalidates the session.
 
 **Verification:**
 
-- [ ] Auth handler tests pass.
-- [ ] Browser smoke test covers login/logout.
+- [x] Auth handler tests pass.
+- [x] Browser smoke test covers login/logout.
 
 **Dependencies:** Task 2.1.
 

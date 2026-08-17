@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/motekar/motekar-panel/internal/agent"
+	"github.com/motekar/motekar-panel/internal/auth"
 	"github.com/motekar/motekar-panel/internal/buildinfo"
 	"github.com/motekar/motekar-panel/internal/config"
 	"github.com/motekar/motekar-panel/internal/database"
@@ -95,16 +96,35 @@ func serve() error {
 	}
 
 	log := logging.New(os.Stdout, cfg.LogLevel)
+	connectContext, cancelConnect := context.WithTimeout(context.Background(), 10*time.Second)
+	db, err := database.OpenPostgres(connectContext, cfg.DatabaseURL)
+	cancelConnect()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
 	agentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
+	sessions := auth.NewSessionService(auth.NewSQLSessionStore(db))
 	app := server.New(server.Config{
-		Version: buildinfo.Info(),
-		Ready:   agentClient.Health,
+		Version:       buildinfo.Info(),
+		Sessions:      sessions,
+		SecureCookies: cfg.Environment == "production",
+		Ready: func(ctx context.Context) error {
+			if err := db.PingContext(ctx); err != nil {
+				return fmt.Errorf("database unavailable: %w", err)
+			}
+			return agentClient.Health(ctx)
+		},
 	})
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	errs := make(chan error, 1)

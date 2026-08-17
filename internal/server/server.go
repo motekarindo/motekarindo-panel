@@ -11,13 +11,19 @@ import (
 type ReadyFunc func(context.Context) error
 
 type Config struct {
-	Version buildinfo.BuildInfo
-	Ready   ReadyFunc
+	Version       buildinfo.BuildInfo
+	Ready         ReadyFunc
+	Sessions      SessionAuthenticator
+	SecureCookies bool
 }
 
 type Server struct {
-	version buildinfo.BuildInfo
-	ready   ReadyFunc
+	version       buildinfo.BuildInfo
+	ready         ReadyFunc
+	sessions      SessionAuthenticator
+	secureCookies bool
+	loginLimiter  *loginLimiter
+	sourceLimiter *loginLimiter
 }
 
 func New(cfg Config) *Server {
@@ -25,8 +31,12 @@ func New(cfg Config) *Server {
 		cfg.Ready = func(context.Context) error { return nil }
 	}
 	return &Server{
-		version: cfg.Version,
-		ready:   cfg.Ready,
+		version:       cfg.Version,
+		ready:         cfg.Ready,
+		sessions:      cfg.Sessions,
+		secureCookies: cfg.SecureCookies,
+		loginLimiter:  newLoginLimiter(loginAttemptLimit),
+		sourceLimiter: newLoginLimiter(loginSourceAttemptLimit),
 	}
 }
 
@@ -36,6 +46,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("GET /version", s.handleVersion)
+	if s.sessions != nil {
+		mux.HandleFunc("GET /login", s.handleLoginForm)
+		mux.HandleFunc("POST /login", s.handleLogin)
+		mux.HandleFunc("POST /logout", s.handleLogout)
+	}
 	return mux
 }
 
