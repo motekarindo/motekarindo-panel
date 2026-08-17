@@ -102,7 +102,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add database connection loading, migration runner, and initial schema for users, sessions, roles, permissions, audit events, jobs, servers, and settings.
 
-**Status:** Safe code foundation completed. Live PostgreSQL smoke verification is pending on a disposable database/VPS.
+**Status:** Completed with repeatable disposable PostgreSQL integration coverage locally and in CI.
 
 **Acceptance criteria:**
 
@@ -110,15 +110,15 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Migrations can run idempotently through `schema_migrations`.
 - [x] Initial tables are defined in SQL.
 - [x] Immutable server settings table can store selected web server.
-- [ ] Live PostgreSQL smoke test confirms schema applies on a disposable database.
+- [x] Live PostgreSQL smoke test confirms schema applies on a disposable database.
 
 **Verification:**
 
 - [x] Migration runner unit tests pass without touching host services.
 - [x] `make test` passes.
 - [x] `make build` passes.
-- [ ] Migration tests pass against a disposable PostgreSQL database.
-- [ ] Schema smoke test inserts and reads core records on a disposable PostgreSQL database.
+- [x] Migration tests pass against a disposable PostgreSQL database.
+- [x] Schema smoke test inserts and reads core records on a disposable PostgreSQL database.
 
 **Dependencies:** Phase 0.
 
@@ -1085,9 +1085,10 @@ Completed:
 3. Task 1.2: Configuration Loader.
 4. Task 1.3: Structured Logging.
 5. Task 1.4: HTTP Server Skeleton.
+6. Task 1.1: PostgreSQL Configuration and Migrations.
 
 Next:
 
-1. Task 1.1: PostgreSQL Configuration and Migrations.
-2. Task 2.1: First Admin Bootstrap.
-3. Task 3.1: Agent Service Skeleton hardening for local-only communication.
+1. Task 2.1: Complete First Admin Bootstrap audit wiring and disposable PostgreSQL verification.
+2. Task 3.1: Agent Service Skeleton hardening for local-only communication.
+3. Task 2.2: Session Login and Logout after Task 2.1 is complete.

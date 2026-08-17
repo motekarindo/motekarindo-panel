@@ -147,6 +147,18 @@ The migration runner records applied versions in `schema_migrations`.
 
 Do not run database migrations against a production or important database until backup and restore procedures exist. For now, run them only against a disposable local database or a test VPS database.
 
+### PostgreSQL Integration Test
+
+Run the repeatable migration and core-schema smoke test against a disposable database:
+
+```bash
+MOTEKAR_TEST_ALLOW_DATABASE=1 \
+  MOTEKAR_TEST_DATABASE_URL="postgres://motekar:motekar-test@127.0.0.1:5432/motekar_panel_test?sslmode=disable" \
+  make test-integration-postgres
+```
+
+The test verifies migration idempotency, RBAC seeds, web-server settings, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
+
 ## First Admin Bootstrap
 
 After migrations have been applied to a disposable PostgreSQL database, create the first admin with:

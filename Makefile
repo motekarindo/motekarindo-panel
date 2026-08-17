@@ -1,7 +1,7 @@
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOENV := GOCACHE=$(GOCACHE)
 
-.PHONY: build release-artifacts test test-installers test-release-artifacts test-system fmt fmt-check dev
+.PHONY: build release-artifacts test test-integration-postgres test-installers test-release-artifacts test-system fmt fmt-check dev
 
 build:
 	$(GOENV) go build ./cmd/motekar-panel ./cmd/motekar-agent ./cmd/motekarctl
@@ -11,6 +11,11 @@ release-artifacts:
 
 test:
 	$(GOENV) go test ./...
+
+test-integration-postgres:
+	@test -n "$(MOTEKAR_TEST_DATABASE_URL)" || (echo "MOTEKAR_TEST_DATABASE_URL is required."; exit 1)
+	@test "$(MOTEKAR_TEST_ALLOW_DATABASE)" = "1" || (echo "MOTEKAR_TEST_ALLOW_DATABASE=1 is required."; exit 1)
+	$(GOENV) go test -count=1 ./tests/integration/...
 
 test-installers:
 	tests/installers/test-installers.sh
