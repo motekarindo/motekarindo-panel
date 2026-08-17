@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/motekar/motekar-panel/internal/buildinfo"
 	"github.com/motekar/motekar-panel/internal/config"
 	"github.com/motekar/motekar-panel/internal/database"
+	"github.com/motekar/motekar-panel/internal/jobs"
 	"github.com/motekar/motekar-panel/internal/logging"
 	"github.com/motekar/motekar-panel/internal/rbac"
 	"github.com/motekar/motekar-panel/internal/server"
@@ -106,7 +108,41 @@ func serve() error {
 	}
 	defer db.Close()
 
-	agentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
+	readinessAgentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
+	actionAgentClient := agent.NewUnixClient(cfg.AgentSocketPath, 5*time.Minute)
+	queue := jobs.NewQueue(jobs.NewSQLStore(db))
+	worker := jobs.NewWorker(queue, jobs.ExecutorFunc(func(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+		result, err := actionAgentClient.ExecuteJob(ctx, job.Type, job.Payload, job.IdempotencyKey)
+		if err != nil {
+			var uncertainError *agent.UncertainActionError
+			if errors.As(err, &uncertainError) {
+				return jobs.Result{}, jobs.Uncertain(err)
+			}
+			var protocolError *agent.ProtocolError
+			if errors.As(err, &protocolError) {
+				return jobs.Result{}, jobs.Permanent(err)
+			}
+			var remoteError *agent.RemoteActionError
+			if errors.As(err, &remoteError) && remoteError.StatusCode >= 400 && remoteError.StatusCode < 500 && remoteError.StatusCode != http.StatusRequestTimeout && remoteError.StatusCode != http.StatusTooManyRequests {
+				return jobs.Result{}, jobs.Permanent(err)
+			}
+			return jobs.Result{}, err
+		}
+		data := json.RawMessage(`{}`)
+		if result.Data != nil {
+			data, err = json.Marshal(result.Data)
+			if err != nil {
+				return jobs.Result{}, jobs.Permanent(errors.New("agent returned invalid result data"))
+			}
+		}
+		logs := make([]jobs.Log, len(result.Logs))
+		for index, entry := range result.Logs {
+			logs[index] = jobs.Log{Level: entry.Level, Message: entry.Message}
+		}
+		return jobs.Result{Code: result.Status, Data: data, Logs: logs}, nil
+	})).WithErrorHandler(func(err error) {
+		log.Error("job worker error", "error", err.Error())
+	})
 	sessions := auth.NewSessionService(auth.NewSQLSessionStore(db))
 	authorization := rbac.NewAuthorizer(rbac.NewSQLPermissionChecker(db))
 	auditStore := audit.NewSQLStore(db)
@@ -124,7 +160,7 @@ func serve() error {
 			if err := db.PingContext(ctx); err != nil {
 				return fmt.Errorf("database unavailable: %w", err)
 			}
-			return agentClient.Health(ctx)
+			return readinessAgentClient.Health(ctx)
 		},
 	})
 
@@ -137,6 +173,10 @@ func serve() error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	claimContext, cancelClaims := context.WithCancel(context.Background())
+	actionContext, cancelActions := context.WithCancel(context.Background())
+	defer cancelClaims()
+	defer cancelActions()
 	errs := make(chan error, 1)
 	go func() {
 		log.Info("panel server starting", "addr", cfg.HTTPAddr)
@@ -144,17 +184,47 @@ func serve() error {
 			errs <- err
 		}
 	}()
+	workerDone := make(chan error, 1)
+	go func() {
+		log.Info("job worker starting")
+		workerDone <- worker.RunWithExecutionContext(claimContext, actionContext)
+	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
 
+	var runtimeErr error
 	select {
 	case err := <-errs:
-		return err
+		runtimeErr = err
+	case err := <-workerDone:
+		runtimeErr = err
+		workerDone = nil
 	case <-stop:
 		log.Info("panel server stopping")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return httpServer.Shutdown(ctx)
 	}
+
+	cancelClaims()
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	shutdownErr := httpServer.Shutdown(shutdownContext)
+	if workerDone != nil {
+		select {
+		case workerErr := <-workerDone:
+			runtimeErr = errors.Join(runtimeErr, workerErr)
+		case <-shutdownContext.Done():
+			cancelActions()
+			forceContext, cancelForce := context.WithTimeout(context.Background(), 6*time.Second)
+			select {
+			case workerErr := <-workerDone:
+				runtimeErr = errors.Join(runtimeErr, workerErr)
+			case <-forceContext.Done():
+				runtimeErr = errors.Join(runtimeErr, errors.New("job worker shutdown timed out"))
+			}
+			cancelForce()
+		}
+	}
+	cancelActions()
+	return errors.Join(runtimeErr, shutdownErr)
 }

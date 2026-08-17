@@ -120,3 +120,18 @@ func TestActionEndpointRejectsWrongContentTypeAndOversizedBody(t *testing.T) {
 		})
 	}
 }
+
+func TestActionEndpointRejectsOversizedIdempotencyKey(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/actions/agent.health", strings.NewReader(`{"payload":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", strings.Repeat("a", maxIdempotencyKeyBytes+1))
+
+	NewServer(ServerConfig{}).Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "INVALID_IDEMPOTENCY_KEY") {
+		t.Fatalf("response = %d body=%q", rec.Code, rec.Body.String())
+	}
+}

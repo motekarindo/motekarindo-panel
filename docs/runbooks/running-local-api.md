@@ -43,6 +43,8 @@ MOTEKAR_DATABASE_URL="postgres://user:password@127.0.0.1:5432/motekar_panel?sslm
 go run ./cmd/motekar-panel serve
 ```
 
+The panel process also starts one PostgreSQL-backed job worker. It claims queued jobs, sends each job type and JSON payload to the matching allowlisted agent action over the Unix socket, and atomically persists success, structured result logs, retry, or final-failure state. Claims use ownership tokens and ten-minute leases, while action execution is limited to five minutes. Expired claims are recovered with the same idempotency key; stale workers cannot finalize a reclaimed job. Start the agent before enqueuing work. Transport and server errors are retryable, while rejected action names or payloads fail permanently.
+
 The `Makefile` sets `GOCACHE` to `.cache/go-build` inside the workspace so sandboxed development environments do not try to write to the user-level Go cache.
 
 ## Panel API
@@ -154,6 +156,7 @@ Current migration files:
 - `services/migrations/000002_seed_rbac.sql`
 - `services/migrations/000003_user_account_assignments.sql`
 - `services/migrations/000004_audit_event_hardening.sql`
+- `services/migrations/000005_job_runtime_hardening.sql`
 
 The migration runner records applied versions in `schema_migrations`.
 
@@ -169,7 +172,7 @@ MOTEKAR_TEST_ALLOW_DATABASE=1 \
   make test-integration-postgres
 ```
 
-The test verifies migration idempotency, RBAC seeds, first-admin bootstrap, session login/logout, audit event persistence/listing, hashed token storage, web-server settings, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
+The test verifies migration idempotency, RBAC seeds, first-admin bootstrap, session login/logout, audit event persistence/listing, hashed token storage, web-server settings, job claim concurrency, resource locks, lease recovery, retry/final failure, result logs, and core record insert/read behavior. It requires an explicit safety marker, refuses databases whose name does not end with `_test`, and creates an isolated temporary schema for each run; never point it at production or important data. CI runs this target with a disposable PostgreSQL 16 service.
 
 ## First Admin Bootstrap
 
@@ -299,7 +302,9 @@ Expected response:
 
 Unknown actions return `404` with `UNKNOWN_ACTION`. Invalid action payloads return `400` with `INVALID_ACTION_PAYLOAD` without exposing validator details.
 
-Every action must be created through the generic typed action factory with a non-nil validator. JSON decoding rejects unknown fields and trailing values before the typed handler runs. The HTTP envelope accepts only `application/json` and is limited to 64 KiB. This is intentional: future privileged server operations cannot be registered as raw shell-string handlers and must define an explicit payload type, validator, and allowlisted implementation.
+Every action must be created through the generic typed action factory with a non-nil validator. JSON decoding rejects unknown fields and trailing values before the typed handler runs. The HTTP envelope accepts only `application/json`; action payloads are limited to 64 KiB, with bounded overhead reserved for the envelope. This is intentional: future privileged server operations cannot be registered as raw shell-string handlers and must define an explicit payload type, validator, and allowlisted implementation.
+
+Job workers send the stable job idempotency key in the `Idempotency-Key` header. Action implementations that can produce side effects must use `agent.IdempotencyKey(ctx)` to deduplicate retried execution.
 
 ## Agent Environment Variables
 

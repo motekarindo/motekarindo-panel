@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +28,14 @@ func TestUnixTransportServesHealthAndCapabilities(t *testing.T) {
 		t.Fatalf("socket permissions = %o, want 660", info.Mode().Perm())
 	}
 
-	httpServer := &http.Server{Handler: NewServer(ServerConfig{}).Handler()}
+	agentServer := NewServer(ServerConfig{})
+	agentServer.actions.MustRegister(MustDefineAction("idempotency.inspect", validateEmptyPayload, func(ctx context.Context, _ EmptyPayload) (ActionResult, error) {
+		return ActionResult{Status: "ok", Data: map[string]any{"idempotency_key": IdempotencyKey(ctx)}}, nil
+	}))
+	agentServer.actions.MustRegister(MustDefineAction("payload.inspect", func(largeActionPayload) error { return nil }, func(_ context.Context, payload largeActionPayload) (ActionResult, error) {
+		return ActionResult{Status: "ok", Data: map[string]any{"length": len(payload.Value)}}, nil
+	}))
+	httpServer := &http.Server{Handler: agentServer.Handler()}
 	serveDone := make(chan error, 1)
 	go func() {
 		serveDone <- httpServer.Serve(listener)
@@ -49,6 +58,33 @@ func TestUnixTransportServesHealthAndCapabilities(t *testing.T) {
 	if len(capabilities.Actions) != 2 || capabilities.Actions[0] != "agent.capabilities" || capabilities.Actions[1] != "agent.health" {
 		t.Fatalf("capabilities = %#v", capabilities.Actions)
 	}
+	result, err := client.Execute(context.Background(), "agent.health", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("execute agent action: %v", err)
+	}
+	if result.Action != "agent.health" || result.Status != "ok" {
+		t.Fatalf("action result = %#v", result)
+	}
+	result, err = client.ExecuteJob(context.Background(), "idempotency.inspect", json.RawMessage(`{}`), "job-key")
+	if err != nil {
+		t.Fatalf("execute idempotent agent action: %v", err)
+	}
+	if result.Data["idempotency_key"] != "job-key" {
+		t.Fatalf("idempotency result = %#v", result.Data)
+	}
+	valueLength := maxActionPayloadBytes - len(`{"value":""}`)
+	largePayload := json.RawMessage(`{"value":"` + strings.Repeat("<", valueLength) + `"}`)
+	result, err = client.ExecuteJob(context.Background(), "payload.inspect", largePayload, "large-job")
+	if err != nil {
+		t.Fatalf("execute maximum-size payload: %v", err)
+	}
+	if result.Data["length"] != float64(valueLength) {
+		t.Fatalf("maximum payload result = %#v", result.Data)
+	}
+}
+
+type largeActionPayload struct {
+	Value string `json:"value"`
 }
 
 func TestListenUnixRefusesNonSocketPath(t *testing.T) {
@@ -164,6 +200,54 @@ func TestUnixClientRejectsUnhealthyResponse(t *testing.T) {
 
 	if err := NewUnixClient(socketPath, time.Second).Health(context.Background()); err == nil {
 		t.Fatal("expected unhealthy response error")
+	}
+}
+
+func TestUnixClientReturnsStructuredActionError(t *testing.T) {
+	socketPath := filepath.Join(shortTempDir(t), "agent.sock")
+	listener, err := ListenUnix(socketPath)
+	if err != nil {
+		t.Fatalf("listen on Unix socket: %v", err)
+	}
+
+	httpServer := &http.Server{Handler: NewServer(ServerConfig{}).Handler()}
+	go httpServer.Serve(listener)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(ctx)
+	})
+
+	_, err = NewUnixClient(socketPath, time.Second).Execute(context.Background(), "not.allowlisted", json.RawMessage(`{}`))
+	var actionErr *RemoteActionError
+	if !errors.As(err, &actionErr) || actionErr.Code != "UNKNOWN_ACTION" || actionErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("Execute error = %#v", err)
+	}
+}
+
+func TestUnixClientClassifiesTimeoutAfterDispatchAsUncertain(t *testing.T) {
+	socketPath := filepath.Join(shortTempDir(t), "agent.sock")
+	listener, err := ListenUnix(socketPath)
+	if err != nil {
+		t.Fatalf("listen on Unix socket: %v", err)
+	}
+
+	httpServer := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"action":"agent.health","status":"ok"}`))
+	})}
+	go httpServer.Serve(listener)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(ctx)
+	})
+
+	_, err = NewUnixClient(socketPath, 10*time.Millisecond).ExecuteJob(context.Background(), "agent.health", json.RawMessage(`{}`), "job-key")
+	var uncertainError *UncertainActionError
+	if !errors.As(err, &uncertainError) {
+		t.Fatalf("ExecuteJob error = %#v, want uncertain outcome", err)
 	}
 }
 

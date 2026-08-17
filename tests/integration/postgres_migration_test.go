@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,12 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/motekar/motekar-panel/internal/audit"
 	"github.com/motekar/motekar-panel/internal/auth"
 	"github.com/motekar/motekar-panel/internal/database"
+	"github.com/motekar/motekar-panel/internal/jobs"
 	"github.com/motekar/motekar-panel/internal/rbac"
 	"github.com/motekar/motekar-panel/internal/server"
 )
@@ -73,8 +76,8 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
-	if len(migrations) != 4 {
-		t.Fatalf("loaded %d migrations, want 4", len(migrations))
+	if len(migrations) != 5 {
+		t.Fatalf("loaded %d migrations, want 5", len(migrations))
 	}
 
 	runner := database.NewRunner(database.NewSQLStore(db))
@@ -97,19 +100,31 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("insert legacy bootstrap audit event: %v", err)
 	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO jobs (id, type, status, payload, attempts, max_attempts, started_at)
+		VALUES
+			('70000000-0000-4000-8000-000000000000', 'legacy.running', 'running', '{}'::jsonb, 1, 3, now()),
+			('70000000-0000-4000-8000-000000000009', 'legacy.exhausted', 'running', '{}'::jsonb, 3, 3, now())
+	`); err != nil {
+		t.Fatalf("insert legacy running job: %v", err)
+	}
 
 	ran, err = runner.Up(ctx, migrations)
 	if err != nil {
 		t.Fatalf("apply audit hardening migration: %v", err)
 	}
-	if len(ran) != 1 {
-		t.Fatalf("applied %d audit hardening migrations, want 1", len(ran))
+	if len(ran) != 2 {
+		t.Fatalf("applied %d remaining migrations, want 2", len(ran))
 	}
 	assertCount(t, ctx, db, `
 		SELECT count(*) FROM audit_events
 		WHERE id = '60000000-0000-4000-8000-000000000001'
 		  AND metadata = '{"source":"bootstrap"}'::jsonb
 	`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE id = '70000000-0000-4000-8000-000000000000' AND status = 'queued' AND started_at IS NULL AND idempotency_key = id::text`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM job_logs WHERE job_id = '70000000-0000-4000-8000-000000000000' AND message = 'legacy running job requeued during lease migration'`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE id = '70000000-0000-4000-8000-000000000009' AND status = 'failed' AND finished_at IS NOT NULL AND idempotency_key = id::text`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM job_logs WHERE job_id = '70000000-0000-4000-8000-000000000009' AND message = 'legacy running job failed during lease migration after final attempt'`, 1)
 
 	ran, err = runner.Up(ctx, migrations)
 	if err != nil {
@@ -119,7 +134,7 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		t.Fatalf("reapplied %d migrations, want none", len(ran))
 	}
 
-	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 4)
+	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 5)
 	assertCount(t, ctx, db, `SELECT count(*) FROM roles`, 4)
 	assertCount(t, ctx, db, `SELECT count(*) FROM permissions`, 13)
 	assertRolePermissions(t, ctx, db, "owner",
@@ -174,8 +189,8 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		t.Fatalf("insert server node: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO jobs (id, type, status, payload)
-		VALUES ('30000000-0000-4000-8000-000000000003', 'integration.smoke', 'queued', '{"source":"integration"}')
+		INSERT INTO jobs (id, type, status, idempotency_key, payload)
+		VALUES ('30000000-0000-4000-8000-000000000003', 'integration.smoke', 'queued', 'integration-smoke', '{"source":"integration"}')
 	`); err != nil {
 		t.Fatalf("insert job: %v", err)
 	}
@@ -619,6 +634,175 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err := rollbackSessionService.Logout(ctx, auth.LogoutInput{Token: rollbackSession.Token}); err != nil {
 		t.Fatalf("clean up rollback session: %v", err)
 	}
+
+	assertPostgresJobQueue(t, ctx, db)
+}
+
+func assertPostgresJobQueue(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	if _, err := db.ExecContext(ctx, `
+		CREATE FUNCTION slow_test_job_claim() RETURNS trigger AS $$
+		BEGIN
+			IF OLD.status = 'queued' AND NEW.status = 'running' THEN
+				PERFORM pg_sleep(0.2);
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER slow_test_job_claim_trigger
+			BEFORE UPDATE ON jobs
+			FOR EACH ROW EXECUTE FUNCTION slow_test_job_claim();
+	`); err != nil {
+		t.Fatalf("install overlapping job claim trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS slow_test_job_claim_trigger ON jobs`)
+		_, _ = db.ExecContext(context.Background(), `DROP FUNCTION IF EXISTS slow_test_job_claim()`)
+	})
+
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	store := jobs.NewSQLStore(db)
+	enqueue := func(id, resourceKey string, maxAttempts int) {
+		queue := jobs.NewQueue(store).
+			WithClock(func() time.Time { return now }).
+			WithIDGenerator(func() (string, error) { return id, nil })
+		if _, err := queue.Enqueue(ctx, jobs.EnqueueInput{
+			Type: "agent.health", ResourceKey: resourceKey, MaxAttempts: maxAttempts,
+		}); err != nil {
+			t.Fatalf("enqueue job %s: %v", id, err)
+		}
+	}
+	clearJobs := func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM jobs`); err != nil {
+			t.Fatalf("clear jobs: %v", err)
+		}
+	}
+
+	enqueue("70000000-0000-4000-8000-000000000001", "site:shared", 2)
+	enqueue("70000000-0000-4000-8000-000000000002", "site:shared", 2)
+	type claimResult struct {
+		job jobs.Job
+		err error
+	}
+	claims := make(chan claimResult, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			job, err := store.ClaimOne(ctx, now, now.Add(10*time.Minute))
+			claims <- claimResult{job: job, err: err}
+		}()
+	}
+	close(start)
+	claimed := 0
+	empty := 0
+	for range 2 {
+		result := <-claims
+		switch {
+		case result.err == nil:
+			claimed++
+		case errors.Is(result.err, jobs.ErrNoJob):
+			empty++
+		default:
+			t.Fatalf("claim same-resource job: %v", result.err)
+		}
+	}
+	if claimed != 1 || empty != 1 {
+		t.Fatalf("same-resource concurrent claims = claimed:%d empty:%d, want 1 each", claimed, empty)
+	}
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000003", "site:first", 2)
+	enqueue("70000000-0000-4000-8000-000000000004", "site:second", 2)
+	start = make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			job, err := store.ClaimOne(ctx, now, now.Add(10*time.Minute))
+			claims <- claimResult{job: job, err: err}
+		}()
+	}
+	close(start)
+	seen := make(map[string]bool)
+	for range 2 {
+		result := <-claims
+		if result.err != nil {
+			t.Fatalf("claim independent-resource job: %v", result.err)
+		}
+		seen[result.job.ID] = true
+	}
+	if len(seen) != 2 {
+		t.Fatalf("independent-resource claims = %#v", seen)
+	}
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000005", "", 2)
+	queue := jobs.NewQueue(store).WithClock(func() time.Time { return now })
+	var executions atomic.Int64
+	worker := jobs.NewWorker(queue, jobs.ExecutorFunc(func(context.Context, jobs.Job) (jobs.Result, error) {
+		executions.Add(1)
+		return jobs.Result{}, errors.New("expected integration failure")
+	})).WithRetryBackoff(func(int) time.Duration { return 0 })
+	if worked, err := worker.RunOnce(ctx); err != nil || !worked {
+		t.Fatalf("first worker attempt = worked:%v error:%v", worked, err)
+	}
+	if worked, err := worker.RunOnce(ctx); err != nil || !worked {
+		t.Fatalf("final worker attempt = worked:%v error:%v", worked, err)
+	}
+	if executions.Load() != 2 {
+		t.Fatalf("worker executions = %d, want 2", executions.Load())
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE status = 'failed' AND attempts = 2 AND finished_at IS NOT NULL`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM job_logs WHERE level = 'error' AND message = 'expected integration failure'`, 2)
+	if err := queue.Succeed(ctx, jobs.Job{ID: "70000000-0000-4000-8000-000000000005", ClaimToken: "70000000-0000-4000-8000-000000000099"}, jobs.Result{Code: "ok"}); !errors.Is(err, jobs.ErrInvalidTransition) {
+		t.Fatalf("terminal job transition error = %v, want %v", err, jobs.ErrInvalidTransition)
+	}
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000006", "site:lease", 2)
+	firstClaim, err := store.ClaimOne(ctx, now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim leased job: %v", err)
+	}
+	reclaimed, err := store.ClaimOne(ctx, now.Add(2*time.Minute), now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("reclaim expired job: %v", err)
+	}
+	if reclaimed.ID != firstClaim.ID || reclaimed.Attempts != 2 || reclaimed.ClaimToken == firstClaim.ClaimToken {
+		t.Fatalf("reclaimed job = %#v, first claim = %#v", reclaimed, firstClaim)
+	}
+	if err := jobs.NewQueue(store).Succeed(ctx, firstClaim, jobs.Result{Code: "ok"}); !errors.Is(err, jobs.ErrInvalidTransition) {
+		t.Fatalf("stale claim transition error = %v, want %v", err, jobs.ErrInvalidTransition)
+	}
+	if err := jobs.NewQueue(store).Fail(ctx, reclaimed, jobs.FailureInput{Message: "reclaimed final failure"}); err != nil {
+		t.Fatalf("finalize reclaimed job: %v", err)
+	}
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000007", "site:expired-final", 1)
+	if _, err := store.ClaimOne(ctx, now, now.Add(time.Minute)); err != nil {
+		t.Fatalf("claim final-attempt job: %v", err)
+	}
+	if _, err := store.ClaimOne(ctx, now.Add(2*time.Minute), now.Add(3*time.Minute)); !errors.Is(err, jobs.ErrNoJob) {
+		t.Fatalf("claim after final lease expiry = %v, want %v", err, jobs.ErrNoJob)
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE status = 'failed' AND claim_token IS NULL AND lease_expires_at IS NULL`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM job_logs WHERE message = 'job lease expired after final attempt'`, 1)
+
+	clearJobs()
+	enqueue("70000000-0000-4000-8000-000000000008", "", 1)
+	successWorker := jobs.NewWorker(queue, jobs.ExecutorFunc(func(context.Context, jobs.Job) (jobs.Result, error) {
+		return jobs.Result{
+			Code: "ok",
+			Data: json.RawMessage(`{"status":"healthy"}`),
+			Logs: []jobs.Log{{Level: "info", Message: "token=must-not-persist"}},
+		}, nil
+	}))
+	if worked, err := successWorker.RunOnce(ctx); err != nil || !worked {
+		t.Fatalf("successful worker attempt = worked:%v error:%v", worked, err)
+	}
+	assertCount(t, ctx, db, `SELECT count(*) FROM jobs WHERE status = 'succeeded' AND result_code = 'ok' AND result = '{"status":"healthy"}'::jsonb`, 1)
+	assertCount(t, ctx, db, `SELECT count(*) FROM job_logs WHERE level = 'info' AND message = '[REDACTED]'`, 1)
 }
 
 func newTestBootstrapService(db *sql.DB, id string) auth.BootstrapService {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,7 +22,7 @@ func TestEnqueueDefaultsJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Enqueue returned error: %v", err)
 	}
-	if job.ID != "job-id" || job.Status != StatusQueued || job.MaxAttempts != 1 || !job.RunAfter.Equal(now) {
+	if job.ID != "job-id" || job.IdempotencyKey != "job-id" || job.Status != StatusQueued || job.MaxAttempts != 1 || !job.RunAfter.Equal(now) {
 		t.Fatalf("unexpected job defaults: %#v", job)
 	}
 	if !json.Valid(job.Payload) || string(job.Payload) != "{}" {
@@ -37,6 +38,14 @@ func TestEnqueueRejectsInvalidJob(t *testing.T) {
 	for _, input := range []EnqueueInput{
 		{},
 		{Type: "site.provision", Payload: json.RawMessage(`{`)},
+		{Type: "site.provision", Payload: json.RawMessage(`null`)},
+		{Type: "site.provision", Payload: json.RawMessage(`[]`)},
+		{Type: "site.provision", Payload: json.RawMessage(`"payload"`)},
+		{Type: "site.provision", Payload: json.RawMessage(`{"value":"` + strings.Repeat("x", maxJobPayloadBytes) + `"}`)},
+		{Type: strings.Repeat("x", maxJobTypeBytes+1)},
+		{Type: "site.provision", ResourceKey: strings.Repeat("x", maxResourceKeyBytes+1)},
+		{Type: "site.provision", IdempotencyKey: strings.Repeat("x", maxIdempotencyBytes+1)},
+		{Type: "site.provision", MaxAttempts: maxJobAttempts + 1},
 	} {
 		if _, err := queue.Enqueue(context.Background(), input); !errors.Is(err, ErrInvalidJob) {
 			t.Fatalf("expected ErrInvalidJob, got %v", err)
@@ -49,7 +58,7 @@ func TestFailRetriesUntilMaxAttempts(t *testing.T) {
 	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
 	queue := NewQueue(store).WithClock(func() time.Time { return now })
 
-	err := queue.Fail(context.Background(), Job{ID: "job-id", Attempts: 1, MaxAttempts: 3}, FailureInput{
+	err := queue.Fail(context.Background(), Job{ID: "job-id", ClaimToken: "claim-token", Attempts: 1, MaxAttempts: 3}, FailureInput{
 		Message: "temporary failure",
 		Backoff: 5 * time.Minute,
 	})
@@ -66,7 +75,7 @@ func TestFailFinalizesAtMaxAttempts(t *testing.T) {
 	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
 	queue := NewQueue(store).WithClock(func() time.Time { return now })
 
-	err := queue.Fail(context.Background(), Job{ID: "job-id", Attempts: 3, MaxAttempts: 3}, FailureInput{
+	err := queue.Fail(context.Background(), Job{ID: "job-id", ClaimToken: "claim-token", Attempts: 3, MaxAttempts: 3}, FailureInput{
 		Message: "final failure",
 		Backoff: 5 * time.Minute,
 	})
@@ -90,15 +99,15 @@ func (s *memoryStore) Enqueue(_ context.Context, job Job) error {
 	return nil
 }
 
-func (s *memoryStore) ClaimOne(context.Context, time.Time) (Job, error) {
+func (s *memoryStore) ClaimOne(context.Context, time.Time, time.Time) (Job, error) {
 	return Job{}, ErrNoJob
 }
 
-func (s *memoryStore) MarkSucceeded(context.Context, string, time.Time) error {
+func (s *memoryStore) MarkSucceeded(context.Context, Job, time.Time, Result) error {
 	return nil
 }
 
-func (s *memoryStore) MarkFailed(_ context.Context, _ string, final bool, runAfter time.Time, _ time.Time, finishedAt time.Time, _ string) error {
+func (s *memoryStore) MarkFailed(_ context.Context, _ Job, final bool, runAfter time.Time, _ time.Time, finishedAt time.Time, _ string) error {
 	s.failedFinal = final
 	s.failedRunAfter = runAfter
 	s.failedFinishedAt = finishedAt

@@ -334,7 +334,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Implement job enqueue, claim, run, retry, fail, succeed, and lock behavior.
 
-**Status:** Queue contract, retry policy, and PostgreSQL store foundation completed. Live PostgreSQL concurrency/locking verification and worker runtime are pending.
+**Status:** Completed. The panel worker executes allowlisted agent actions with bounded retries, resource locks, ownership leases, idempotency propagation, structured results, and crash recovery.
 
 **Acceptance criteria:**
 
@@ -343,12 +343,12 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Job logs are stored for failed jobs.
 - [x] Failed jobs are visible through persisted status.
 - [x] Conflicting jobs can be locked by resource key at SQL claim time.
-- [ ] Worker runtime executes claimed jobs.
+- [x] Worker runtime executes claimed jobs.
 
 **Verification:**
 
 - [x] Unit tests cover enqueue validation and retry/final failure policy.
-- [ ] Integration tests with PostgreSQL pass.
+- [x] Integration tests with PostgreSQL pass.
 
 **Dependencies:** Task 3.2.
 

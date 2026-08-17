@@ -2,16 +2,29 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/motekar/motekar-panel/internal/buildinfo"
 )
 
-const maxActionRequestBytes = 64 << 10
+const (
+	maxActionPayloadBytes  = 64 << 10
+	maxActionRequestBytes  = maxActionPayloadBytes + 1024
+	maxIdempotencyKeyBytes = 128
+)
+
+type idempotencyContextKey struct{}
+
+func IdempotencyKey(ctx context.Context) string {
+	key, _ := ctx.Value(idempotencyContextKey{}).(string)
+	return key
+}
 
 type ServerConfig struct {
 	Version buildinfo.BuildInfo
@@ -52,6 +65,11 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(idempotencyKey) > maxIdempotencyKeyBytes {
+		writeActionRequestError(w, http.StatusBadRequest, "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key exceeds the 128 byte limit.")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxActionRequestBytes)
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
@@ -84,8 +102,13 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		writeInvalidJSON(w)
 		return
 	}
+	if len(payload) > maxActionPayloadBytes {
+		writeActionRequestError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Action payload exceeds the 64 KiB limit.")
+		return
+	}
 
-	result, err := s.actions.Execute(r.Context(), name, payload)
+	actionContext := context.WithValue(r.Context(), idempotencyContextKey{}, idempotencyKey)
+	result, err := s.actions.Execute(actionContext, name, payload)
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "ACTION_ERROR"

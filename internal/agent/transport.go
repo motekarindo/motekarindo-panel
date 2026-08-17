@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,10 +9,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -161,6 +165,29 @@ type UnixClient struct {
 	httpClient *http.Client
 }
 
+type RemoteActionError struct {
+	StatusCode int
+	Code       string
+}
+
+type UncertainActionError struct {
+	err error
+}
+
+func (e *UncertainActionError) Error() string { return "agent action outcome is uncertain" }
+func (e *UncertainActionError) Unwrap() error { return e.err }
+
+type ProtocolError struct {
+	err error
+}
+
+func (e *ProtocolError) Error() string { return e.err.Error() }
+func (e *ProtocolError) Unwrap() error { return e.err }
+
+func (e *RemoteActionError) Error() string {
+	return fmt.Sprintf("agent action failed with %s (HTTP %d)", e.Code, e.StatusCode)
+}
+
 func NewUnixClient(socketPath string, timeout time.Duration) *UnixClient {
 	if timeout <= 0 {
 		timeout = 2 * time.Second
@@ -198,6 +225,82 @@ func (c *UnixClient) Capabilities(ctx context.Context) (Capabilities, error) {
 		return Capabilities{}, err
 	}
 	return capabilities, nil
+}
+
+func (c *UnixClient) Execute(ctx context.Context, name string, payload json.RawMessage) (ActionResult, error) {
+	return c.ExecuteJob(ctx, name, payload, "")
+}
+
+func (c *UnixClient) ExecuteJob(ctx context.Context, name string, payload json.RawMessage, idempotencyKey string) (ActionResult, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ActionResult{}, &ProtocolError{err: errors.New("agent action name is required")}
+	}
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 || len(payload) > maxActionPayloadBytes || payload[0] != '{' || !json.Valid(payload) {
+		return ActionResult{}, &ProtocolError{err: errors.New("invalid agent action payload")}
+	}
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if len(idempotencyKey) > maxIdempotencyKeyBytes {
+		return ActionResult{}, &ProtocolError{err: errors.New("invalid agent action idempotency key")}
+	}
+	body := make([]byte, 0, len(payload)+12)
+	body = append(body, `{"payload":`...)
+	body = append(body, payload...)
+	body = append(body, '}')
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"http://agent/actions/"+url.PathEscape(name),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" {
+		request.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	var wroteRequest atomic.Bool
+	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		if wroteRequest.Load() {
+			return ActionResult{}, &UncertainActionError{err: err}
+		}
+		return ActionResult{}, fmt.Errorf("request agent action: %w", err)
+	}
+	defer response.Body.Close()
+
+	encoded, err := io.ReadAll(io.LimitReader(response.Body, maxAgentResponseBytes+1))
+	if err != nil {
+		return ActionResult{}, &UncertainActionError{err: err}
+	}
+	if len(encoded) > maxAgentResponseBytes {
+		return ActionResult{}, &ProtocolError{err: errors.New("agent action response exceeds size limit")}
+	}
+	if response.StatusCode != http.StatusOK {
+		var envelope struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		code := "HTTP_ERROR"
+		if json.Unmarshal(encoded, &envelope) == nil && envelope.Error.Code != "" {
+			code = envelope.Error.Code
+		}
+		return ActionResult{}, &RemoteActionError{StatusCode: response.StatusCode, Code: code}
+	}
+
+	var result ActionResult
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return ActionResult{}, &ProtocolError{err: errors.New("agent returned malformed action result")}
+	}
+	if result.Action != name || result.Status != "ok" {
+		return ActionResult{}, &ProtocolError{err: errors.New("agent returned an invalid action result")}
+	}
+	return result, nil
 }
 
 func (c *UnixClient) getJSON(ctx context.Context, path string, target any) error {

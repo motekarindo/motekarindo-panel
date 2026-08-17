@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -8,6 +9,15 @@ import (
 	"fmt"
 	"strings"
 	"time"
+)
+
+const (
+	maxJobPayloadBytes   = 64 << 10
+	maxJobTypeBytes      = 128
+	maxResourceKeyBytes  = 512
+	maxIdempotencyBytes  = 128
+	maxJobAttempts       = 25
+	defaultLeaseDuration = 10 * time.Minute
 )
 
 type Status string
@@ -20,58 +30,85 @@ const (
 )
 
 var (
-	ErrInvalidJob = errors.New("invalid job")
-	ErrNoJob      = errors.New("no job available")
+	ErrInvalidJob        = errors.New("invalid job")
+	ErrNoJob             = errors.New("no job available")
+	ErrInvalidTransition = errors.New("invalid job state transition")
 )
 
 type Job struct {
-	ID          string
-	Type        string
-	Status      Status
-	ResourceKey string
-	Payload     json.RawMessage
-	Attempts    int
-	MaxAttempts int
-	RunAfter    time.Time
-	StartedAt   time.Time
-	FinishedAt  time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             string
+	Type           string
+	Status         Status
+	ResourceKey    string
+	IdempotencyKey string
+	Payload        json.RawMessage
+	Attempts       int
+	MaxAttempts    int
+	ClaimToken     string
+	RunAfter       time.Time
+	LeaseExpiresAt time.Time
+	StartedAt      time.Time
+	FinishedAt     time.Time
+	ResultCode     string
+	Result         json.RawMessage
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type EnqueueInput struct {
-	Type        string
-	ResourceKey string
-	Payload     json.RawMessage
-	MaxAttempts int
-	RunAfter    time.Time
+	Type           string
+	ResourceKey    string
+	IdempotencyKey string
+	Payload        json.RawMessage
+	MaxAttempts    int
+	RunAfter       time.Time
 }
 
 type FailureInput struct {
-	JobID   string
+	Message   string
+	Backoff   time.Duration
+	Permanent bool
+}
+
+type Result struct {
+	Code string
+	Data json.RawMessage
+	Logs []Log
+}
+
+type Log struct {
+	Level   string
 	Message string
-	Backoff time.Duration
 }
 
 type Store interface {
 	Enqueue(ctx context.Context, job Job) error
-	ClaimOne(ctx context.Context, now time.Time) (Job, error)
-	MarkSucceeded(ctx context.Context, jobID string, finishedAt time.Time) error
-	MarkFailed(ctx context.Context, jobID string, final bool, runAfter time.Time, updatedAt time.Time, finishedAt time.Time, message string) error
+	ClaimOne(ctx context.Context, now time.Time, leaseExpiresAt time.Time) (Job, error)
+	MarkSucceeded(ctx context.Context, job Job, finishedAt time.Time, result Result) error
+	MarkFailed(ctx context.Context, job Job, final bool, runAfter time.Time, updatedAt time.Time, finishedAt time.Time, message string) error
 }
 
 type Queue struct {
-	store Store
-	now   func() time.Time
-	newID func() (string, error)
+	store         Store
+	now           func() time.Time
+	newID         func() (string, error)
+	leaseDuration time.Duration
 }
 
 func NewQueue(store Store) Queue {
 	return Queue{
-		store: store,
-		now:   func() time.Time { return time.Now().UTC() },
-		newID: newUUID,
+		store:         store,
+		now:           func() time.Time { return time.Now().UTC() },
+		newID:         newUUID,
+		leaseDuration: defaultLeaseDuration,
 	}
+}
+
+func (q Queue) WithLeaseDuration(duration time.Duration) Queue {
+	if duration > 0 {
+		q.leaseDuration = duration
+	}
+	return q
 }
 
 func (q Queue) WithClock(now func() time.Time) Queue {
@@ -86,17 +123,24 @@ func (q Queue) WithIDGenerator(newID func() (string, error)) Queue {
 
 func (q Queue) Enqueue(ctx context.Context, input EnqueueInput) (Job, error) {
 	input.Type = strings.TrimSpace(input.Type)
-	if input.Type == "" {
+	input.ResourceKey = strings.TrimSpace(input.ResourceKey)
+	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
+	if input.Type == "" || len(input.Type) > maxJobTypeBytes || len(input.ResourceKey) > maxResourceKeyBytes || len(input.IdempotencyKey) > maxIdempotencyBytes {
 		return Job{}, ErrInvalidJob
 	}
 	if len(input.Payload) == 0 {
 		input.Payload = json.RawMessage(`{}`)
 	}
-	if !json.Valid(input.Payload) {
+	input.Payload = bytes.TrimSpace(input.Payload)
+	if len(input.Payload) == 0 || len(input.Payload) > maxJobPayloadBytes || input.Payload[0] != '{' || !json.Valid(input.Payload) {
 		return Job{}, ErrInvalidJob
 	}
+	input.Payload = append(json.RawMessage(nil), input.Payload...)
 	if input.MaxAttempts <= 0 {
 		input.MaxAttempts = 1
+	}
+	if input.MaxAttempts > maxJobAttempts {
+		return Job{}, ErrInvalidJob
 	}
 	now := q.now()
 	if input.RunAfter.IsZero() {
@@ -106,17 +150,21 @@ func (q Queue) Enqueue(ctx context.Context, input EnqueueInput) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
+	if input.IdempotencyKey == "" {
+		input.IdempotencyKey = id
+	}
 
 	job := Job{
-		ID:          id,
-		Type:        input.Type,
-		Status:      StatusQueued,
-		ResourceKey: strings.TrimSpace(input.ResourceKey),
-		Payload:     input.Payload,
-		MaxAttempts: input.MaxAttempts,
-		RunAfter:    input.RunAfter,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             id,
+		Type:           input.Type,
+		Status:         StatusQueued,
+		ResourceKey:    input.ResourceKey,
+		IdempotencyKey: input.IdempotencyKey,
+		Payload:        input.Payload,
+		MaxAttempts:    input.MaxAttempts,
+		RunAfter:       input.RunAfter,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if err := q.store.Enqueue(ctx, job); err != nil {
 		return Job{}, err
@@ -125,29 +173,37 @@ func (q Queue) Enqueue(ctx context.Context, input EnqueueInput) (Job, error) {
 }
 
 func (q Queue) ClaimOne(ctx context.Context) (Job, error) {
-	return q.store.ClaimOne(ctx, q.now())
+	now := q.now()
+	return q.store.ClaimOne(ctx, now, now.Add(q.leaseDuration))
 }
 
-func (q Queue) Succeed(ctx context.Context, jobID string) error {
-	if strings.TrimSpace(jobID) == "" {
+func (q Queue) Succeed(ctx context.Context, job Job, result Result) error {
+	if strings.TrimSpace(job.ID) == "" || strings.TrimSpace(job.ClaimToken) == "" {
 		return ErrInvalidJob
 	}
-	return q.store.MarkSucceeded(ctx, jobID, q.now())
+	result, err := normalizeResult(result)
+	if err != nil {
+		return err
+	}
+	return q.store.MarkSucceeded(ctx, job, q.now(), result)
 }
 
 func (q Queue) Fail(ctx context.Context, job Job, input FailureInput) error {
-	if strings.TrimSpace(job.ID) == "" {
+	if strings.TrimSpace(job.ID) == "" || strings.TrimSpace(job.ClaimToken) == "" || input.Backoff < 0 {
 		return ErrInvalidJob
 	}
+	if strings.TrimSpace(input.Message) != "" {
+		input.Message = safeFailureMessage(errors.New(input.Message))
+	}
 	now := q.now()
-	final := job.Attempts >= job.MaxAttempts
+	final := input.Permanent || job.Attempts >= job.MaxAttempts
 	runAfter := now
 	finishedAt := now
 	if !final {
 		runAfter = now.Add(input.Backoff)
 		finishedAt = time.Time{}
 	}
-	return q.store.MarkFailed(ctx, job.ID, final, runAfter, now, finishedAt, input.Message)
+	return q.store.MarkFailed(ctx, job, final, runAfter, now, finishedAt, input.Message)
 }
 
 func newUUID() (string, error) {
