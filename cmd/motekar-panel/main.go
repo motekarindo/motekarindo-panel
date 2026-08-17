@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/motekar/motekar-panel/internal/agent"
 	"github.com/motekar/motekar-panel/internal/buildinfo"
 	"github.com/motekar/motekar-panel/internal/config"
 	"github.com/motekar/motekar-panel/internal/database"
@@ -94,11 +95,10 @@ func serve() error {
 	}
 
 	log := logging.New(os.Stdout, cfg.LogLevel)
+	agentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
 	app := server.New(server.Config{
 		Version: buildinfo.Info(),
-		Ready: func(context.Context) error {
-			return nil
-		},
+		Ready:   agentClient.Health,
 	})
 
 	httpServer := &http.Server{

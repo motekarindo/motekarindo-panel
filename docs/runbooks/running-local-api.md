@@ -90,6 +90,8 @@ Expected response:
 {"status":"ready"}
 ```
 
+Readiness returns `503` when the local agent is unavailable. Start the agent with the same `MOTEKAR_AGENT_SOCKET` value before checking `/readyz`.
+
 Version check:
 
 ```bash
@@ -112,7 +114,8 @@ Expected response shape:
 | Variable | Default | Description |
 |---|---:|---|
 | `MOTEKAR_PANEL_ADDR` | `:8080` | Panel API listen address |
-| `MOTEKAR_DATABASE_URL` | empty | Future PostgreSQL connection string |
+| `MOTEKAR_AGENT_SOCKET` | `.cache/motekar-agent.sock` | Local agent Unix socket path |
+| `MOTEKAR_DATABASE_URL` | empty | PostgreSQL connection string |
 | `MOTEKAR_MIGRATIONS_DIR` | `services/migrations` | SQL migration directory |
 | `MOTEKAR_ENV` | `development` | Runtime environment label |
 | `MOTEKAR_LOG_LEVEL` | `info` | Structured log level |
@@ -183,17 +186,23 @@ Run the agent:
 GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekar-agent serve
 ```
 
-Default address:
+Default Unix socket:
 
 ```text
-127.0.0.1:9090
+.cache/motekar-agent.sock
 ```
 
-Use `MOTEKAR_AGENT_ADDR` to override it:
+Use `MOTEKAR_AGENT_SOCKET` to override it. The panel and agent must use the same path:
 
 ```bash
-GOCACHE="$(pwd)/.cache/go-build" MOTEKAR_AGENT_ADDR=127.0.0.1:19090 go run ./cmd/motekar-agent serve
+GOCACHE="$(pwd)/.cache/go-build" \
+  MOTEKAR_AGENT_SOCKET=/var/run/motekar-panel/agent.sock \
+  go run ./cmd/motekar-agent serve
 ```
+
+The agent does not open a TCP port. Its socket is created with mode `0660`. The runtime directory must be owned by the agent user and must not be writable by group or others. A process lock serializes startup and protects stale-socket cleanup.
+
+`MOTEKAR_AGENT_ADDR` is no longer supported. Agent startup fails with a migration message when the legacy TCP variable is still set.
 
 Available endpoints:
 
@@ -207,19 +216,20 @@ Available endpoints:
 Example:
 
 ```bash
-curl http://127.0.0.1:9090/capabilities
+curl --unix-socket .cache/motekar-agent.sock http://agent/capabilities
 ```
 
 Expected response:
 
 ```json
-{"actions":["agent.health","agent.capabilities"]}
+{"actions":["agent.capabilities","agent.health"]}
 ```
 
 Execute an allowlisted health action:
 
 ```bash
-curl -X POST http://127.0.0.1:9090/actions/agent.health \
+curl --unix-socket .cache/motekar-agent.sock \
+  -X POST http://agent/actions/agent.health \
   -H "Content-Type: application/json" \
   -d '{"payload":{}}'
 ```
@@ -242,7 +252,7 @@ Unknown actions return `404` with `UNKNOWN_ACTION`. This is intentional: future 
 
 | Variable | Default | Description |
 |---|---:|---|
-| `MOTEKAR_AGENT_ADDR` | `127.0.0.1:9090` | Agent API listen address |
+| `MOTEKAR_AGENT_SOCKET` | `.cache/motekar-agent.sock` | Agent Unix socket path |
 | `MOTEKAR_ENV` | `development` | Runtime environment label |
 | `MOTEKAR_LOG_LEVEL` | `info` | Structured log level |
 
@@ -364,7 +374,7 @@ GOCACHE="$(pwd)/.cache/go-build" go test ./...
 
 The provided `Makefile` already does this.
 
-### Port already in use
+### Panel port already in use
 
 Use a different address:
 
@@ -372,8 +382,14 @@ Use a different address:
 MOTEKAR_PANEL_ADDR=127.0.0.1:18080 make dev
 ```
 
-For the agent:
+### Agent socket unavailable
+
+Ensure the panel and agent use the same socket path and that its parent directory is not world-writable:
 
 ```bash
-GOCACHE="$(pwd)/.cache/go-build" MOTEKAR_AGENT_ADDR=127.0.0.1:19090 go run ./cmd/motekar-agent serve
+MOTEKAR_AGENT_SOCKET=.cache/motekar-agent.sock \
+  GOCACHE="$(pwd)/.cache/go-build" \
+  go run ./cmd/motekar-agent serve
 ```
+
+The agent removes a stale socket only while holding its startup lock. It refuses to replace regular files or symlinks at the configured path.

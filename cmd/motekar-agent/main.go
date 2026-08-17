@@ -53,17 +53,21 @@ func serve() error {
 	app := agent.NewServer(agent.ServerConfig{
 		Version: buildinfo.Info(),
 	})
+	listener, err := agent.ListenUnix(cfg.SocketPath)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 
 	httpServer := &http.Server{
-		Addr:              cfg.HTTPAddr,
 		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	errs := make(chan error, 1)
 	go func() {
-		log.Info("agent server starting", "addr", cfg.HTTPAddr)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("agent server starting", "socket", cfg.SocketPath)
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
 	}()

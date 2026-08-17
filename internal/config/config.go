@@ -7,15 +7,16 @@ import (
 )
 
 type PanelConfig struct {
-	HTTPAddr      string
-	DatabaseURL   string
-	MigrationsDir string
-	Environment   string
-	LogLevel      string
+	HTTPAddr        string
+	AgentSocketPath string
+	DatabaseURL     string
+	MigrationsDir   string
+	Environment     string
+	LogLevel        string
 }
 
 type AgentConfig struct {
-	HTTPAddr    string
+	SocketPath  string
 	Environment string
 	LogLevel    string
 }
@@ -30,11 +31,12 @@ func LoadAgent() (AgentConfig, error) {
 
 func loadPanel(getenv func(string) string) (PanelConfig, error) {
 	cfg := PanelConfig{
-		HTTPAddr:      value(getenv, "MOTEKAR_PANEL_ADDR", ":8080"),
-		DatabaseURL:   strings.TrimSpace(getenv("MOTEKAR_DATABASE_URL")),
-		MigrationsDir: value(getenv, "MOTEKAR_MIGRATIONS_DIR", "services/migrations"),
-		Environment:   value(getenv, "MOTEKAR_ENV", "development"),
-		LogLevel:      value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
+		HTTPAddr:        value(getenv, "MOTEKAR_PANEL_ADDR", ":8080"),
+		AgentSocketPath: value(getenv, "MOTEKAR_AGENT_SOCKET", ".cache/motekar-agent.sock"),
+		DatabaseURL:     strings.TrimSpace(getenv("MOTEKAR_DATABASE_URL")),
+		MigrationsDir:   value(getenv, "MOTEKAR_MIGRATIONS_DIR", "services/migrations"),
+		Environment:     value(getenv, "MOTEKAR_ENV", "development"),
+		LogLevel:        value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
 	}
 
 	if cfg.HTTPAddr == "" {
@@ -47,14 +49,17 @@ func loadPanel(getenv func(string) string) (PanelConfig, error) {
 }
 
 func loadAgent(getenv func(string) string) (AgentConfig, error) {
+	if strings.TrimSpace(getenv("MOTEKAR_AGENT_ADDR")) != "" {
+		return AgentConfig{}, errors.New("MOTEKAR_AGENT_ADDR is no longer supported; use MOTEKAR_AGENT_SOCKET")
+	}
 	cfg := AgentConfig{
-		HTTPAddr:    value(getenv, "MOTEKAR_AGENT_ADDR", "127.0.0.1:9090"),
+		SocketPath:  value(getenv, "MOTEKAR_AGENT_SOCKET", ".cache/motekar-agent.sock"),
 		Environment: value(getenv, "MOTEKAR_ENV", "development"),
 		LogLevel:    value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
 	}
 
-	if cfg.HTTPAddr == "" {
-		return AgentConfig{}, errors.New("MOTEKAR_AGENT_ADDR cannot be empty")
+	if cfg.SocketPath == "" {
+		return AgentConfig{}, errors.New("MOTEKAR_AGENT_SOCKET cannot be empty")
 	}
 	return cfg, nil
 }

@@ -286,16 +286,18 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Implement `motekar-agent` with health, capabilities, and local communication endpoint.
 
+**Status:** Completed with a permission-restricted, startup-locked Unix socket, panel readiness integration, and panel-agent smoke coverage.
+
 **Acceptance criteria:**
 
-- [ ] Agent starts as a long-running process.
-- [ ] Agent exposes health and capabilities.
-- [ ] Panel can query local agent status.
+- [x] Agent starts as a long-running process.
+- [x] Agent exposes health and capabilities.
+- [x] Panel can query local agent status.
 
 **Verification:**
 
-- [ ] Agent unit tests pass.
-- [ ] Panel-agent integration smoke test passes.
+- [x] Agent unit tests pass.
+- [x] Panel-agent integration smoke test passes.
 
 **Dependencies:** Phase 1.
 
@@ -1087,9 +1089,10 @@ Completed:
 5. Task 1.4: HTTP Server Skeleton.
 6. Task 1.1: PostgreSQL Configuration and Migrations.
 7. Task 2.1: First Admin Bootstrap.
+8. Task 3.1: Agent Service Skeleton.
 
 Next:
 
-1. Task 3.1: Agent Service Skeleton hardening for local-only communication.
-2. Task 2.2: Session Login and Logout.
-3. Task 2.3: Complete HTTP authorization middleware after Task 2.2.
+1. Task 2.2: Session Login and Logout.
+2. Task 2.3: Complete HTTP authorization middleware after Task 2.2.
+3. Task 2.4: Wire security-sensitive actions to the audit pipeline.

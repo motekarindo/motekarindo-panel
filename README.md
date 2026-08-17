@@ -2,7 +2,7 @@
 
 Motekar Panel is a shared-hosting server control panel owned by Motekar Teknologi Indonesia.
 
-Current implementation status: early Go foundation with panel API, agent API, configuration loading, structured logging, and health/version endpoints.
+Current implementation status: early Go foundation with panel API, Unix-socket agent API, configuration loading, structured logging, and health/version endpoints.
 
 ## Quick Start
 
@@ -22,13 +22,19 @@ Build binaries:
 make build
 ```
 
-Run the panel API:
+Run the local agent in one terminal:
+
+```bash
+GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekar-agent serve
+```
+
+Run the panel API in another terminal:
 
 ```bash
 make dev
 ```
 
-The panel API listens on `:8080` by default.
+The panel API listens on `:8080` and connects to the agent through `.cache/motekar-agent.sock` by default.
 
 Check it:
 
