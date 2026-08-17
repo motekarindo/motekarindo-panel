@@ -15,7 +15,7 @@ const (
 	MinimumSharedHostingRAMMB   = 2048
 	MinimumSingleUserDiskGB     = 15
 	MinimumSharedHostingDiskGB  = 20
-	MinimumSingleUserSwapMB     = 2048
+	MinimumSingleUserSwapMB     = 1024
 	MinimumSharedHostingSwapMB  = 1024
 	RecommendedSingleUserRAMMB  = 2048
 	RecommendedSingleUserSwapMB = 2048
@@ -170,6 +170,17 @@ func checkDisk(profile InstallProfile, got int) Check {
 
 func checkSwap(profile InstallProfile, got int) Check {
 	if profile == ProfileSingleUser {
+		if got < MinimumSingleUserSwapMB {
+			return minimum("swap", got, MinimumSingleUserSwapMB, "MB swap")
+		}
+		if got < RecommendedSingleUserSwapMB {
+			return Check{
+				Name:     "swap",
+				Status:   CheckWarn,
+				Message:  fmt.Sprintf("single-user profile can run with %d MB swap, but %d MB swap is recommended; detected %d", MinimumSingleUserSwapMB, RecommendedSingleUserSwapMB, got),
+				Blocking: false,
+			}
+		}
 		return minimum("swap", got, MinimumSingleUserSwapMB, "MB swap")
 	}
 	return minimum("swap", got, MinimumSharedHostingSwapMB, "MB swap")

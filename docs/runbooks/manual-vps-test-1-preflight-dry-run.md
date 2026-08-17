@@ -92,6 +92,7 @@ GOCACHE="$(pwd)/.cache/go-build" go run ./cmd/motekarctl preflight \
 - Ubuntu 24.04 should pass OS detection.
 - A nominal 1 GB VM reporting at least 960 MB RAM should warn but pass in `single-user`.
 - 1 GB RAM should fail in `shared-hosting`.
+- 1 GB swap should warn but pass in `single-user`; less than 1 GB should fail.
 - 15 GB free disk space should pass in `single-user`.
 - Less than 20 GB free disk space should fail in `shared-hosting`.
 - Dry-run output must include `No changes were made.`

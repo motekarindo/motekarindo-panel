@@ -46,7 +46,7 @@ Minimum supported single-user profile:
 - 1 vCPU.
 - 1 GB nominal RAM; the preflight check accepts at least 960 MB reported by Linux to account for reserved VM memory.
 - 15 GB free disk space.
-- 2 GB swap.
+- 1 GB swap minimum; 2 GB recommended.
 - Ubuntu 24.04 LTS.
 - Intended for one owner, low traffic, and limited enabled services.
 - Email hosting should warn or be disabled by default on this profile unless the operator accepts the resource risk.

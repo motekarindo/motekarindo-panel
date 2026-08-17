@@ -57,7 +57,7 @@ func TestRunInstallPlanUsesCollector(t *testing.T) {
 				CPUCores:       1,
 				RAMMB:          961,
 				DiskGB:         15,
-				SwapMB:         2048,
+				SwapMB:         1024,
 				IsRoot:         true,
 				HasSystemd:     true,
 				PortsAvailable: map[int]bool{80: true, 443: true},

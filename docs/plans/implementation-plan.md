@@ -430,7 +430,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 - [x] Preflight reports pass/fail for each requirement.
 - [x] Minimum server requirements match spec.
-- [x] Single-user profile allows a nominal 1 GB VM reporting at least 960 MB RAM, with a warning and stronger swap requirement.
+- [x] Single-user profile allows a nominal 1 GB VM reporting at least 960 MB RAM, requires 1 GB swap, and recommends 2 GB swap.
 - [x] Single-user profile requires 15 GB free disk space; shared-hosting still requires 20 GB.
 - [x] Shared-hosting profile still blocks 1 GB RAM.
 - [x] Unsafe install state blocks installation.

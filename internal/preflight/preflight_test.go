@@ -75,7 +75,7 @@ func TestRunAllowsSingleUserNominalOneGBRAMWithWarning(t *testing.T) {
 		CPUCores:       1,
 		RAMMB:          961,
 		DiskGB:         15,
-		SwapMB:         2048,
+		SwapMB:         1024,
 		IsRoot:         true,
 		HasSystemd:     true,
 		PortsAvailable: map[int]bool{80: true, 443: true},
@@ -87,6 +87,9 @@ func TestRunAllowsSingleUserNominalOneGBRAMWithWarning(t *testing.T) {
 	}
 	if !hasWarning(report, "memory") {
 		t.Fatalf("expected non-blocking memory warning, got %#v", report.Checks)
+	}
+	if !hasWarning(report, "swap") {
+		t.Fatalf("expected non-blocking swap warning, got %#v", report.Checks)
 	}
 }
 
@@ -125,6 +128,25 @@ func TestRunBlocksSingleUserBelowFreeDiskMinimum(t *testing.T) {
 
 	if !hasFailure(report, "disk") {
 		t.Fatalf("expected disk failure below single-user minimum, got %#v", report.Checks)
+	}
+}
+
+func TestRunBlocksSingleUserBelowSwapMinimum(t *testing.T) {
+	report := Run(SystemFacts{
+		OS:             osdetect.OSRelease{ID: "ubuntu", VersionID: "24.04"},
+		Profile:        ProfileSingleUser,
+		CPUCores:       1,
+		RAMMB:          961,
+		DiskGB:         15,
+		SwapMB:         1023,
+		IsRoot:         true,
+		HasSystemd:     true,
+		PortsAvailable: map[int]bool{80: true, 443: true},
+		PostgreSQLPlan: PostgreSQLPlanInstall,
+	})
+
+	if !hasFailure(report, "swap") {
+		t.Fatalf("expected swap failure below single-user minimum, got %#v", report.Checks)
 	}
 }
 
