@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +17,8 @@ import (
 	"github.com/motekar/motekar-panel/internal/audit"
 	"github.com/motekar/motekar-panel/internal/auth"
 	"github.com/motekar/motekar-panel/internal/database"
+	"github.com/motekar/motekar-panel/internal/rbac"
+	"github.com/motekar/motekar-panel/internal/server"
 )
 
 func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
@@ -69,8 +73,8 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
-	if len(migrations) != 2 {
-		t.Fatalf("loaded %d migrations, want 2", len(migrations))
+	if len(migrations) != 3 {
+		t.Fatalf("loaded %d migrations, want 3", len(migrations))
 	}
 
 	runner := database.NewRunner(database.NewSQLStore(db))
@@ -90,7 +94,7 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 		t.Fatalf("reapplied %d migrations, want none", len(ran))
 	}
 
-	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 2)
+	assertCount(t, ctx, db, `SELECT count(*) FROM schema_migrations`, 3)
 	assertCount(t, ctx, db, `SELECT count(*) FROM roles`, 4)
 	assertCount(t, ctx, db, `SELECT count(*) FROM permissions`, 13)
 	assertRolePermissions(t, ctx, db, "owner",
@@ -361,6 +365,121 @@ func TestPostgresMigrationsAndCoreSchema(t *testing.T) {
 	assertCount(t, ctx, db, `SELECT count(*) FROM sessions`, 0)
 	if _, err := sessionService.Validate(ctx, session.Token); !errors.Is(err, auth.ErrInvalidSession) {
 		t.Fatalf("logged-out session validation error = %v, want %v", err, auth.ErrInvalidSession)
+	}
+
+	authorization := rbac.NewAuthorizer(rbac.NewSQLPermissionChecker(db))
+	if err := authorization.Authorize(ctx, admin.ID, rbac.PermissionBillingManage); err != nil {
+		t.Fatalf("authorize owner billing permission: %v", err)
+	}
+	if err := authorization.Authorize(ctx, admin.ID, "unknown:permission"); !errors.Is(err, rbac.ErrForbidden) {
+		t.Fatalf("unknown permission error = %v, want %v", err, rbac.ErrForbidden)
+	}
+
+	adminUserID := "30000000-0000-4000-8000-000000000030"
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO users (id, email, password_hash, display_name)
+		VALUES ($1, 'admin@example.com', $2, 'Admin')
+	`, adminUserID, admin.PasswordHash); err != nil {
+		t.Fatalf("insert admin user: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT $1, id FROM roles WHERE name = 'admin'
+	`, adminUserID); err != nil {
+		t.Fatalf("assign admin role: %v", err)
+	}
+	if err := authorization.Authorize(ctx, adminUserID, rbac.PermissionSettingsManage); err != nil {
+		t.Fatalf("authorize admin settings permission: %v", err)
+	}
+	if err := authorization.Authorize(ctx, adminUserID, rbac.PermissionBillingManage); !errors.Is(err, rbac.ErrForbidden) {
+		t.Fatalf("admin billing permission error = %v, want %v", err, rbac.ErrForbidden)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE users SET is_active = FALSE WHERE id = $1`, adminUserID); err != nil {
+		t.Fatalf("deactivate admin user: %v", err)
+	}
+	if err := authorization.Authorize(ctx, adminUserID, rbac.PermissionSettingsManage); !errors.Is(err, rbac.ErrForbidden) {
+		t.Fatalf("inactive admin permission error = %v, want %v", err, rbac.ErrForbidden)
+	}
+
+	rolelessUserID := "30000000-0000-4000-8000-000000000031"
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO users (id, email, password_hash, display_name)
+		VALUES ($1, 'roleless@example.com', $2, 'Roleless')
+	`, rolelessUserID, admin.PasswordHash); err != nil {
+		t.Fatalf("insert roleless user: %v", err)
+	}
+	if err := authorization.Authorize(ctx, rolelessUserID, rbac.PermissionSettingsManage); !errors.Is(err, rbac.ErrForbidden) {
+		t.Fatalf("roleless user permission error = %v, want %v", err, rbac.ErrForbidden)
+	}
+
+	customerUserID := "30000000-0000-4000-8000-000000000032"
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO users (id, email, password_hash, display_name)
+		VALUES ($1, 'customer@example.com', $2, 'Customer')
+	`, customerUserID, admin.PasswordHash); err != nil {
+		t.Fatalf("insert customer user: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT $1, id FROM roles WHERE name = 'customer'
+	`, customerUserID); err != nil {
+		t.Fatalf("assign customer role: %v", err)
+	}
+	accountA := "40000000-0000-4000-8000-000000000001"
+	accountB := "40000000-0000-4000-8000-000000000002"
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO user_account_assignments (user_id, account_id)
+		VALUES ($1, $2)
+	`, customerUserID, accountA); err != nil {
+		t.Fatalf("assign customer account: %v", err)
+	}
+	if err := authorization.AuthorizeAccount(ctx, rbac.Actor{UserID: customerUserID}, rbac.PermissionWebsitesManage, accountA); err != nil {
+		t.Fatalf("authorize assigned customer account: %v", err)
+	}
+	if err := authorization.AuthorizeAccount(ctx, rbac.Actor{UserID: customerUserID}, rbac.PermissionWebsitesManage, accountB); !errors.Is(err, rbac.ErrForbidden) {
+		t.Fatalf("cross-account authorization error = %v, want %v", err, rbac.ErrForbidden)
+	}
+	if err := authorization.AuthorizeAccount(ctx, rbac.Actor{UserID: admin.ID}, rbac.PermissionWebsitesManage, accountB); err != nil {
+		t.Fatalf("authorize owner global account access: %v", err)
+	}
+
+	httpSession, err := sessionService.Login(ctx, auth.LoginInput{
+		Email:    admin.Email,
+		Password: "correct horse battery staple",
+	})
+	if err != nil {
+		t.Fatalf("create HTTP integration session: %v", err)
+	}
+	app := server.New(server.Config{Sessions: sessionService, Authorization: authorization})
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{Name: server.SessionCookieName, Value: httpSession.Token})
+	response := httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("authorized HTTP status = %d body=%q", response.Code, response.Body.String())
+	}
+
+	if _, err := db.ExecContext(ctx, `DELETE FROM user_roles WHERE user_id = $1`, admin.ID); err != nil {
+		t.Fatalf("revoke owner role: %v", err)
+	}
+	response = httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"forbidden"`) {
+		t.Fatalf("revoked-role HTTP response = %d body=%q", response.Code, response.Body.String())
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT $1, id FROM roles WHERE name = 'owner'
+	`, admin.ID); err != nil {
+		t.Fatalf("restore owner role: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE sessions SET expires_at = $1 WHERE user_id = $2`, sessionNow, admin.ID); err != nil {
+		t.Fatalf("expire HTTP integration session: %v", err)
+	}
+	response = httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), `"code":"unauthenticated"`) {
+		t.Fatalf("expired-session HTTP response = %d body=%q", response.Code, response.Body.String())
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/motekar/motekar-panel/internal/buildinfo"
+	"github.com/motekar/motekar-panel/internal/rbac"
 )
 
 type ReadyFunc func(context.Context) error
@@ -14,6 +15,7 @@ type Config struct {
 	Version       buildinfo.BuildInfo
 	Ready         ReadyFunc
 	Sessions      SessionAuthenticator
+	Authorization PermissionAuthorizer
 	SecureCookies bool
 }
 
@@ -21,6 +23,7 @@ type Server struct {
 	version       buildinfo.BuildInfo
 	ready         ReadyFunc
 	sessions      SessionAuthenticator
+	authorization PermissionAuthorizer
 	secureCookies bool
 	loginLimiter  *loginLimiter
 	sourceLimiter *loginLimiter
@@ -34,6 +37,7 @@ func New(cfg Config) *Server {
 		version:       cfg.Version,
 		ready:         cfg.Ready,
 		sessions:      cfg.Sessions,
+		authorization: cfg.Authorization,
 		secureCookies: cfg.SecureCookies,
 		loginLimiter:  newLoginLimiter(loginAttemptLimit),
 		sourceLimiter: newLoginLimiter(loginSourceAttemptLimit),
@@ -42,7 +46,8 @@ func New(cfg Config) *Server {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.handleHome)
+	home := s.RequirePermission(rbac.PermissionWebsitesManage, http.HandlerFunc(s.handleHome))
+	mux.Handle("GET /", home)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("GET /version", s.handleVersion)

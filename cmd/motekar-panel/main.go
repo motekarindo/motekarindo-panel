@@ -17,6 +17,7 @@ import (
 	"github.com/motekar/motekar-panel/internal/config"
 	"github.com/motekar/motekar-panel/internal/database"
 	"github.com/motekar/motekar-panel/internal/logging"
+	"github.com/motekar/motekar-panel/internal/rbac"
 	"github.com/motekar/motekar-panel/internal/server"
 )
 
@@ -106,9 +107,11 @@ func serve() error {
 
 	agentClient := agent.NewUnixClient(cfg.AgentSocketPath, 2*time.Second)
 	sessions := auth.NewSessionService(auth.NewSQLSessionStore(db))
+	authorization := rbac.NewAuthorizer(rbac.NewSQLPermissionChecker(db))
 	app := server.New(server.Config{
 		Version:       buildinfo.Info(),
 		Sessions:      sessions,
+		Authorization: authorization,
 		SecureCookies: cfg.Environment == "production",
 		Ready: func(ctx context.Context) error {
 			if err := db.PingContext(ctx); err != nil {

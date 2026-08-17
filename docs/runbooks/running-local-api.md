@@ -63,7 +63,7 @@ Available endpoints:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/` | Minimal HTML landing page |
+| `GET` | `/` | Authenticated panel landing page |
 | `GET` | `/login` | Login form |
 | `POST` | `/login` | Create an authenticated session |
 | `POST` | `/logout` | Invalidate the current session |
@@ -150,6 +150,7 @@ Current migration files:
 
 - `services/migrations/000001_initial_core.sql`
 - `services/migrations/000002_seed_rbac.sql`
+- `services/migrations/000003_user_account_assignments.sql`
 
 The migration runner records applied versions in `schema_migrations`.
 
@@ -206,6 +207,18 @@ curl -i -b /tmp/motekar-cookies.txt -c /tmp/motekar-cookies.txt \
 ```
 
 Logout deletes the stored session and expires the browser cookie. Login failures intentionally return the same response for unknown users, incorrect passwords, and inactive users. Auth POST requests require a matching `Origin` or `Referer`; repeated failures are throttled per source and account, with a coarser per-source limit.
+
+## Authorization
+
+The panel loads effective permissions from PostgreSQL through role assignments. Protected handlers use `Server.RequirePermission`; it validates the session cookie, checks the requested permission, and adds the authenticated session principal to the request context. Failures use a stable JSON envelope:
+
+```json
+{"error":{"code":"forbidden","message":"Permission denied."}}
+```
+
+Unauthenticated requests return `401` with `unauthenticated`, denied permissions return `403` with `forbidden`, and backend failures return a generic `500` with `internal_error`.
+
+Service methods operating on account-owned resources must call `rbac.Authorizer.AuthorizeAccount` with an `rbac.Actor` whose user ID comes from the validated session. The authorizer resolves roles and `user_account_assignments` from PostgreSQL in the same permission query. Owner and admin actors have global account scope; reseller and customer actors are limited to assigned account IDs. Never populate the actor user ID from request parameters.
 
 ## Agent API
 

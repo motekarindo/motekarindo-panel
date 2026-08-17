@@ -29,6 +29,7 @@ const (
 type SessionAuthenticator interface {
 	Login(ctx context.Context, input auth.LoginInput) (auth.LoginSession, error)
 	Logout(ctx context.Context, token string) error
+	Validate(ctx context.Context, token string) (auth.SessionPrincipal, error)
 }
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, _ *http.Request) {

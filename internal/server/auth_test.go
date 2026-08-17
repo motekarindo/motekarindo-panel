@@ -223,11 +223,14 @@ func TestLogoutKeepsCookieWhenInvalidationFails(t *testing.T) {
 }
 
 type fakeSessionAuthenticator struct {
-	loginInput   auth.LoginInput
-	loginSession auth.LoginSession
-	loginErr     error
-	logoutToken  string
-	logoutErr    error
+	loginInput     auth.LoginInput
+	loginSession   auth.LoginSession
+	loginErr       error
+	logoutToken    string
+	logoutErr      error
+	principal      auth.SessionPrincipal
+	validatedToken string
+	validateErr    error
 }
 
 func (f *fakeSessionAuthenticator) Login(_ context.Context, input auth.LoginInput) (auth.LoginSession, error) {
@@ -238,6 +241,11 @@ func (f *fakeSessionAuthenticator) Login(_ context.Context, input auth.LoginInpu
 func (f *fakeSessionAuthenticator) Logout(_ context.Context, token string) error {
 	f.logoutToken = token
 	return f.logoutErr
+}
+
+func (f *fakeSessionAuthenticator) Validate(_ context.Context, token string) (auth.SessionPrincipal, error) {
+	f.validatedToken = token
+	return f.principal, f.validateErr
 }
 
 func setSameOrigin(req *http.Request, secure bool) {

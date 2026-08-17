@@ -240,21 +240,21 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add roles, permissions, and resource authorization helpers.
 
-**Status:** Default roles, permissions, authorization helper, and idempotent RBAC seed migration completed. Handler middleware and resource ownership checks are pending.
+**Status:** Completed with idempotent role/permission seeds, database-backed permission checks, session-aware HTTP middleware, structured authorization errors, and account-scoped resource ownership checks.
 
 **Acceptance criteria:**
 
 - [x] Owner/admin roles are seeded.
 - [x] Permission checks can guard services.
 - [x] Reseller/customer roles are reserved in the initial permission model.
-- [ ] Permission checks can guard HTTP handlers.
-- [ ] Resource ownership checks are implemented for account-owned resources.
-- [ ] Unauthorized actions return structured errors.
+- [x] Permission checks can guard HTTP handlers.
+- [x] Resource ownership checks are implemented for account-owned resources.
+- [x] Unauthorized actions return structured errors.
 
 **Verification:**
 
 - [x] Unit tests cover allow, deny, and missing role.
-- [ ] Integration test confirms RBAC seed migration on disposable PostgreSQL.
+- [x] Integration test confirms RBAC seed migration on disposable PostgreSQL.
 
 **Dependencies:** Task 2.2.
 
