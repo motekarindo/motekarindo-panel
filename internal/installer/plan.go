@@ -89,13 +89,13 @@ func plannedActions(webServer settings.WebServer, postgresPlan preflight.Postgre
 			ChangesHost: true,
 		},
 		Action{
-			ID:          "settings.webserver",
-			Description: fmt.Sprintf("Persist immutable web server setting as %s", webServer),
+			ID:          "database.migrate",
+			Description: "Run Motekar Panel database migrations",
 			ChangesHost: true,
 		},
 		Action{
-			ID:          "database.migrate",
-			Description: "Run Motekar Panel database migrations",
+			ID:          "settings.webserver",
+			Description: fmt.Sprintf("Persist immutable web server setting as %s", webServer),
 			ChangesHost: true,
 		},
 		Action{
