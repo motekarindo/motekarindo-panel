@@ -34,16 +34,13 @@ func loadPanel(getenv func(string) string) (PanelConfig, error) {
 		HTTPAddr:        value(getenv, "MOTEKAR_PANEL_ADDR", ":8080"),
 		AgentSocketPath: value(getenv, "MOTEKAR_AGENT_SOCKET", ".cache/motekar-agent.sock"),
 		DatabaseURL:     strings.TrimSpace(getenv("MOTEKAR_DATABASE_URL")),
-		MigrationsDir:   value(getenv, "MOTEKAR_MIGRATIONS_DIR", "services/migrations"),
+		MigrationsDir:   strings.TrimSpace(getenv("MOTEKAR_MIGRATIONS_DIR")),
 		Environment:     value(getenv, "MOTEKAR_ENV", "development"),
 		LogLevel:        value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
 	}
 
 	if cfg.HTTPAddr == "" {
 		return PanelConfig{}, errors.New("MOTEKAR_PANEL_ADDR cannot be empty")
-	}
-	if cfg.MigrationsDir == "" {
-		return PanelConfig{}, errors.New("MOTEKAR_MIGRATIONS_DIR cannot be empty")
 	}
 	return cfg, nil
 }

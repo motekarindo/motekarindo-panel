@@ -16,8 +16,8 @@ func TestLoadPanelDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
 	}
-	if cfg.MigrationsDir != "services/migrations" {
-		t.Fatalf("MigrationsDir = %q, want services/migrations", cfg.MigrationsDir)
+	if cfg.MigrationsDir != "" {
+		t.Fatalf("MigrationsDir = %q, want empty (embedded migrations)", cfg.MigrationsDir)
 	}
 	if cfg.AgentSocketPath != ".cache/motekar-agent.sock" {
 		t.Fatalf("AgentSocketPath = %q, want .cache/motekar-agent.sock", cfg.AgentSocketPath)

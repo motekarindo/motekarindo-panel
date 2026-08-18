@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"github.com/motekar/motekar-panel/internal/rbac"
 	"github.com/motekar/motekar-panel/internal/server"
 	"github.com/motekar/motekar-panel/internal/settings"
+	"github.com/motekar/motekar-panel/services/migrations"
 )
 
 func main() {
@@ -76,12 +78,18 @@ func migrate(args []string) error {
 	}
 	defer db.Close()
 
-	migrations, err := database.LoadMigrations(os.DirFS(filepath.Clean(cfg.MigrationsDir)))
+	var migrationsFS fs.FS
+	if cfg.MigrationsDir == "" {
+		migrationsFS = migrations.FS
+	} else {
+		migrationsFS = os.DirFS(filepath.Clean(cfg.MigrationsDir))
+	}
+	pending, err := database.LoadMigrations(migrationsFS)
 	if err != nil {
 		return err
 	}
 
-	ran, err := database.NewRunner(database.NewSQLStore(db)).Up(ctx, migrations)
+	ran, err := database.NewRunner(database.NewSQLStore(db)).Up(ctx, pending)
 	if err != nil {
 		return err
 	}
