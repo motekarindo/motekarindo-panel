@@ -72,13 +72,13 @@ prompt_secret() {
   local confirm=""
   while true; do
     read -r -s -p "[motekar-installer] ${label}: " value
-    printf '\n'
+    printf '\n' >&2
     [ -n "$value" ] || {
       printf '[motekar-installer] %s cannot be empty\n' "$label" >&2
       continue
     }
     read -r -s -p "[motekar-installer] ${label} (again): " confirm
-    printf '\n'
+    printf '\n' >&2
     [ "$value" = "$confirm" ] || {
       printf '[motekar-installer] %s values do not match\n' "$label" >&2
       continue
