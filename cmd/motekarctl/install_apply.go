@@ -81,7 +81,7 @@ func runInstallApply(args []string, stdout io.Writer, collect preflightCollector
 		defer closer.Close()
 	}
 
-	result, err := installer.Apply(ctx, plan, executor)
+	result, err := installer.Apply(ctx, plan, loggingExecutor{executor: executor, stdout: stdout})
 	if err != nil {
 		return err
 	}
@@ -153,6 +153,20 @@ func parseInstallApplyOptionsFromReader(args []string, stdin io.Reader) (install
 		options.adminPassword = password
 	}
 	return options, nil
+}
+
+type loggingExecutor struct {
+	executor installer.ActionExecutor
+	stdout   io.Writer
+}
+
+func (l loggingExecutor) Execute(ctx context.Context, action installer.Action) error {
+	fmt.Fprintf(l.stdout, "running %s ...\n", action.ID)
+	if err := l.executor.Execute(ctx, action); err != nil {
+		return err
+	}
+	fmt.Fprintf(l.stdout, "running %s done\n", action.ID)
+	return nil
 }
 
 func readInstallAdminPassword(stdin io.Reader) (string, error) {
