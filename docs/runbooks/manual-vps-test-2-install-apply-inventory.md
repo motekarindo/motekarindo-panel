@@ -57,7 +57,7 @@ Expected:
 
 ## Step 2: One-Shot Apply (Tasks 4.0-4.3)
 
-Run the full install through the bootstrapper. This installs PostgreSQL, the web server, the panel/agent binaries, writes systemd services, runs the embedded migrations, and bootstraps the first admin.
+Run the full install through the bootstrapper. This installs PostgreSQL, the web server, the panel/agent binaries, writes systemd services, runs the embedded migrations, and bootstraps the first admin. The installer wraps itself in a tmux session when running on an interactive terminal, so the install survives SSH disconnects (`tmux attach -t motekar-install` to reattach).
 
 Release run (downloads all binaries and prompts for admin credentials):
 
@@ -90,6 +90,7 @@ cp /tmp/motekar-agent /tmp/devbin/motekar-agent-linux-amd64
 Expected:
 
 - The three binaries are installed under `/usr/local/bin`.
+- The install prints `running <action> ...` before and `done` after each plan action, and apt-get output streams live to the terminal instead of going silent.
 - `apt-get` installs PostgreSQL and Nginx; both are enabled.
 - PostgreSQL role `motekar` and database `motekar_panel` are created with a generated password.
 - Environment files are written to `/etc/motekar-panel/panel.env` and `agent.env` (mode 0600).
@@ -113,6 +114,12 @@ Expected:
 - Both services are `active (running)`.
 - `/readyz` returns ready.
 - `server_settings` has an immutable `web_server` = `nginx`, and an audit event `settings.web_server.selected`.
+
+If the SSH connection drops mid-install, reconnect and attach to the tmux session to see the install continue:
+
+```bash
+tmux attach -t motekar-install
+```
 
 ## Step 3: Immutability and Idempotency
 
