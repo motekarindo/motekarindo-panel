@@ -24,10 +24,52 @@ printf '%s\n' "$output" | grep -q 'fake-motekarctl preflight --profile single-us
 printf '%s\n' "$output" | grep -q 'fake-motekarctl install plan --profile single-user --web-server nginx --postgresql install'
 printf '%s\n' "$output" | grep -q 'dry-run completed; no changes were made'
 
+mkdir -p "${tmp_dir}/bin"
+cp "$fake_motekarctl" "${tmp_dir}/bin/motekarctl-linux-amd64"
+cp "$fake_motekarctl" "${tmp_dir}/bin/motekar-panel-linux-amd64"
+cp "$fake_motekarctl" "${tmp_dir}/bin/motekar-agent-linux-amd64"
+
 apply_output="${tmp_dir}/apply.out"
-if "$installer" --apply --skip-os-check --skip-root-check --local-binary "$fake_motekarctl" >"$apply_output" 2>&1; then
-  printf 'expected --apply to fail\n' >&2
+apply_err="${tmp_dir}/apply.err"
+"$installer" \
+  --apply \
+  --skip-os-check \
+  --skip-root-check \
+  --local-binary-dir "${tmp_dir}/bin" \
+  --bin-dir "${tmp_dir}/deploy" \
+  --profile single-user \
+  --web-server nginx \
+  --postgresql install \
+  --admin-email owner@example.com \
+  --admin-display-name "Owner" \
+  --admin-password "correct-horse-battery" \
+  >"$apply_output" 2>"$apply_err"
+
+grep -q 'fake-motekarctl install apply --profile single-user --web-server nginx --postgresql install --bin-dir' "$apply_output"
+grep -q -- '--admin-email owner@example.com' "$apply_output"
+grep -q -- '--admin-password-stdin' "$apply_output"
+grep -q 'Motekar Panel installed' "$apply_output"
+test -x "${tmp_dir}/deploy/motekarctl"
+test -x "${tmp_dir}/deploy/motekar-panel"
+test -x "${tmp_dir}/deploy/motekar-agent"
+
+external_output="${tmp_dir}/external.out"
+if "$installer" \
+  --apply \
+  --skip-os-check \
+  --skip-root-check \
+  --local-binary-dir "${tmp_dir}/bin" \
+  --bin-dir "${tmp_dir}/deploy" \
+  --profile single-user \
+  --web-server nginx \
+  --postgresql external \
+  --admin-email owner@example.com \
+  --admin-display-name "Owner" \
+  --admin-password "correct-horse-battery" \
+  >"$external_output" 2>&1; then
+  printf 'expected external PostgreSQL without MOTEKAR_DATABASE_URL to fail\n' >&2
   exit 1
 fi
+grep -q 'requires MOTEKAR_DATABASE_URL' "$external_output"
 
-grep -q -- '--apply is not available yet' "$apply_output"
+printf 'all installer tests passed\n'
