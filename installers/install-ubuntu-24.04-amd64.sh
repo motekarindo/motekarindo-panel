@@ -9,6 +9,8 @@ readonly DEFAULT_BIN_DIR="/usr/local/bin"
 readonly RELEASE_ARTIFACTS=("motekarctl-linux-amd64" "motekar-panel-linux-amd64" "motekar-agent-linux-amd64")
 readonly DEFAULT_RELEASE_BASE_URL="https://github.com/motekarindo/motekarindo-panel/releases/latest/download"
 
+original_args=("$@")
+
 profile="${DEFAULT_PROFILE}"
 web_server="${DEFAULT_WEB_SERVER}"
 postgresql="${DEFAULT_POSTGRESQL}"
@@ -20,6 +22,7 @@ download_base_url="${DEFAULT_RELEASE_BASE_URL}"
 verify_checksum="1"
 skip_os_check="0"
 skip_root_check="0"
+auto_tmux="1"
 admin_email=""
 admin_display_name=""
 admin_password=""
@@ -46,6 +49,7 @@ Options:
   --local-binary-dir DIR     Use existing motekarctl, motekar-panel, and motekar-agent binaries from DIR.
   --download-url URL         Download binaries from this base URL.
   --no-checksum              Skip checksum verification. Intended only for development/custom mirrors.
+  --no-tmux                  Run directly without wrapping in a tmux session.
   --skip-os-check            Skip OS/architecture validation. Intended only for automated tests.
   --skip-root-check          Skip root validation. Intended only for automated tests.
   -h, --help                 Show this help.
@@ -157,6 +161,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-checksum)
       verify_checksum="0"
+      shift
+      ;;
+    --no-tmux)
+      auto_tmux="0"
       shift
       ;;
     --skip-os-check)
@@ -327,6 +335,36 @@ run_apply() {
   printf '  Admin: %s\n' "$admin_email"
   printf '\nManage it with: systemctl status motekar-panel motekar-agent\n'
 }
+
+wrap_in_tmux() {
+  [ "$mode" = "apply" ] || return 0
+  [ "$auto_tmux" = "1" ] || return 0
+  [ -t 0 ] || return 0
+  [ -z "${TMUX:-}" ] || return 0
+  [ -z "${MOTEKAR_INSTALLER_IN_TMUX:-}" ] || return 0
+
+  if ! command -v tmux >/dev/null 2>&1; then
+    log "installing tmux so the install survives SSH disconnects"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y tmux >/dev/null 2>&1 || {
+      log "warning: could not install tmux; install will run directly"
+      return 0
+    }
+  fi
+
+  script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  quoted_args="$(printf '%q ' "$script_path" "${original_args[@]}")"
+
+  log "wrapping install in a tmux session named motekar-install"
+  printf '  If the SSH connection drops, reconnect and run:  tmux attach -t motekar-install\n'
+
+  if ! MOTEKAR_INSTALLER_IN_TMUX=1 tmux new-session -d -s motekar-install "$quoted_args"; then
+    log "warning: could not start tmux session; install will run directly"
+    return 0
+  fi
+  exit 0
+}
+
+wrap_in_tmux
 
 if [ "$mode" = "dry-run" ]; then
   run_dry_run

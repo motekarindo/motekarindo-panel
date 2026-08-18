@@ -113,4 +113,59 @@ test -x "${download_deploy}/motekarctl"
 test -x "${download_deploy}/motekar-panel"
 test -x "${download_deploy}/motekar-agent"
 
+tmux_log="${tmp_dir}/tmux.log"
+fake_tmux="${tmp_dir}/tmux"
+cat >"$fake_tmux" <<'EOF'
+#!/usr/bin/env bash
+printf 'fake-tmux %s\n' "$*" >>"${FAKE_TMUX_LOG}"
+exit 0
+EOF
+chmod +x "$fake_tmux"
+
+tmux_output="${tmp_dir}/tmux.out"
+FAKE_TMUX_LOG="$tmux_log" PATH="${tmp_dir}:$PATH" \
+  script -q /dev/null \
+  "$installer" --apply \
+    --skip-os-check \
+    --skip-root-check \
+    --no-checksum \
+    --local-binary-dir "${tmp_dir}/bin" \
+    --bin-dir "${tmp_dir}/deploy3" \
+    --profile single-user \
+    --web-server nginx \
+    --postgresql install \
+    --admin-email owner@example.com \
+    --admin-display-name "Owner" \
+    --admin-password "correct-horse-battery" \
+  >"$tmux_output" 2>&1
+
+grep -q 'wrapping install in a tmux session named motekar-install' "$tmux_output"
+grep -q 'fake-tmux new-session -d -s motekar-install' "$tmux_log"
+grep -q -- '--admin-email owner@example.com' "$tmux_log"
+
+tmux_disabled_log="${tmp_dir}/tmux-disabled.log"
+: >"$tmux_disabled_log"
+tmux_disabled_output="${tmp_dir}/tmux-disabled.out"
+FAKE_TMUX_LOG="$tmux_disabled_log" PATH="${tmp_dir}:$PATH" \
+  script -q /dev/null \
+  "$installer" --apply \
+    --skip-os-check \
+    --skip-root-check \
+    --no-tmux \
+    --local-binary-dir "${tmp_dir}/bin" \
+    --bin-dir "${tmp_dir}/deploy3" \
+    --profile single-user \
+    --web-server nginx \
+    --postgresql install \
+    --admin-email owner@example.com \
+    --admin-display-name "Owner" \
+    --admin-password "correct-horse-battery" \
+  >"$tmux_disabled_output" 2>&1
+
+grep -q 'Motekar Panel installed' "$tmux_disabled_output"
+if grep -q 'fake-tmux new-session -d -s motekar-install' "$tmux_disabled_log"; then
+  printf 'expected --no-tmux to skip the tmux session\n' >&2
+  exit 1
+fi
+
 printf 'all installer tests passed\n'
