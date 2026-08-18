@@ -17,16 +17,16 @@ func TestRunInstallApplySamplePersistsWebServer(t *testing.T) {
 	var stdout bytes.Buffer
 	var called bool
 	err := runInstallApply(
-		[]string{"--sample", "--profile", "shared-hosting", "--web-server", "nginx", "--postgresql", "install", "--database-url", "postgres://example/test"},
+		[]string{"--sample", "--profile", "shared-hosting", "--web-server", "nginx", "--postgresql", "install"},
 		&stdout,
 		nil,
-		func(_ context.Context, url, value string) (installer.ActionExecutor, io.Closer, error) {
+		func(_ context.Context, options installApplyOptions) (installer.ActionExecutor, io.Closer, error) {
 			called = true
-			if url != "postgres://example/test" {
-				t.Fatalf("database URL = %q", url)
+			if options.webServer != "nginx" {
+				t.Fatalf("web server value = %q", options.webServer)
 			}
-			if value != "nginx" {
-				t.Fatalf("web server value = %q", value)
+			if options.databaseURL != "" {
+				t.Fatalf("database URL = %q", options.databaseURL)
 			}
 			return applyRecordingExecutor{}, nil, nil
 		},
@@ -42,21 +42,10 @@ func TestRunInstallApplySamplePersistsWebServer(t *testing.T) {
 	}
 }
 
-func TestOpenInstallExecutorRequiresDatabaseURL(t *testing.T) {
-	t.Setenv("MOTEKAR_DATABASE_URL", "")
-	_, _, err := openInstallExecutor(context.Background(), "", "nginx")
-	if err == nil {
-		t.Fatal("expected database URL error")
-	}
-	if !strings.Contains(err.Error(), "database URL is required") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestRunInstallApplyUsesCollector(t *testing.T) {
 	var stdout bytes.Buffer
 	err := runInstallApply(
-		[]string{"--profile", "single-user", "--web-server", "nginx", "--postgresql", "external", "--database-url", "postgres://example/test"},
+		[]string{"--profile", "single-user", "--web-server", "nginx", "--postgresql", "external"},
 		&stdout,
 		func(_ context.Context, options preflight.CollectorOptions) (preflight.SystemFacts, error) {
 			if options.Profile != preflight.ProfileSingleUser || options.PostgreSQLPlan != preflight.PostgreSQLPlanExternal {
@@ -75,7 +64,7 @@ func TestRunInstallApplyUsesCollector(t *testing.T) {
 				PostgreSQLPlan: options.PostgreSQLPlan,
 			}, nil
 		},
-		func(_ context.Context, _, _ string) (installer.ActionExecutor, io.Closer, error) {
+		func(_ context.Context, _ installApplyOptions) (installer.ActionExecutor, io.Closer, error) {
 			return applyRecordingExecutor{}, nil, nil
 		},
 	)
@@ -87,10 +76,10 @@ func TestRunInstallApplyUsesCollector(t *testing.T) {
 func TestRunInstallApplyReportsSkippedActions(t *testing.T) {
 	var stdout bytes.Buffer
 	err := runInstallApply(
-		[]string{"--sample", "--profile", "shared-hosting", "--web-server", "nginx", "--postgresql", "install", "--database-url", "postgres://example/test"},
+		[]string{"--sample", "--profile", "shared-hosting", "--web-server", "nginx", "--postgresql", "install"},
 		&stdout,
 		nil,
-		func(_ context.Context, _, _ string) (installer.ActionExecutor, io.Closer, error) {
+		func(_ context.Context, _ installApplyOptions) (installer.ActionExecutor, io.Closer, error) {
 			return applyRecordingExecutor{err: installer.ErrUnsupportedAction}, nil, nil
 		},
 	)
@@ -107,10 +96,10 @@ func TestRunInstallApplyFailsOnRealExecutorError(t *testing.T) {
 	var stdout bytes.Buffer
 	wantErr := errors.New("executor failure")
 	err := runInstallApply(
-		[]string{"--sample", "--profile", "shared-hosting", "--web-server", "nginx", "--postgresql", "install", "--database-url", "postgres://example/test"},
+		[]string{"--sample", "--profile", "shared-hosting", "--web-server", "nginx", "--postgresql", "install"},
 		&stdout,
 		nil,
-		func(_ context.Context, _, _ string) (installer.ActionExecutor, io.Closer, error) {
+		func(_ context.Context, _ installApplyOptions) (installer.ActionExecutor, io.Closer, error) {
 			return applyRecordingExecutor{err: wantErr}, nil, nil
 		},
 	)
@@ -122,6 +111,39 @@ func TestRunInstallApplyFailsOnRealExecutorError(t *testing.T) {
 func TestInstallCommandRejectsUnknownSubcommand(t *testing.T) {
 	if err := installCommand([]string{"bogus"}); err == nil {
 		t.Fatal("expected unknown subcommand error")
+	}
+}
+
+func TestParseInstallApplyOptionsReadsAdminPasswordFromStdin(t *testing.T) {
+	options, err := parseInstallApplyOptionsFromReader(
+		[]string{"--sample", "--web-server", "nginx", "--admin-email", "owner@example.com", "--admin-display-name", "Owner", "--admin-password-stdin"},
+		strings.NewReader("hunter2secret\n"),
+	)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if options.adminPassword != "hunter2secret" {
+		t.Fatalf("adminPassword = %q", options.adminPassword)
+	}
+}
+
+func TestParseInstallApplyOptionsRejectsEmptyAdminPassword(t *testing.T) {
+	_, err := parseInstallApplyOptionsFromReader(
+		[]string{"--sample", "--web-server", "nginx", "--admin-email", "owner@example.com", "--admin-password-stdin"},
+		strings.NewReader("\n"),
+	)
+	if err == nil {
+		t.Fatal("expected empty password error")
+	}
+}
+
+func TestParseInstallApplyOptionsRejectsUnknownPostgresqlPlan(t *testing.T) {
+	_, err := parseInstallApplyOptionsFromReader(
+		[]string{"--sample", "--web-server", "nginx", "--postgresql", "bogus"},
+		strings.NewReader(""),
+	)
+	if err == nil {
+		t.Fatal("expected unsupported PostgreSQL plan error")
 	}
 }
 

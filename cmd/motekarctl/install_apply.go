@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/motekar/motekar-panel/internal/audit"
@@ -14,14 +15,26 @@ import (
 	"github.com/motekar/motekar-panel/internal/installer"
 	"github.com/motekar/motekar-panel/internal/preflight"
 	"github.com/motekar/motekar-panel/internal/settings"
+	"github.com/motekar/motekar-panel/services/migrations"
 )
 
 type installApplyOptions struct {
 	installPlanOptions
-	databaseURL string
+	databaseURL        string
+	binDir             string
+	etcDir             string
+	systemdDir         string
+	agentSocket        string
+	panelAddr          string
+	environment        string
+	adminEmail         string
+	adminDisplayName   string
+	adminPasswordStdin bool
+	adminPassword      string
+	noSystemd          bool
 }
 
-func runInstallApply(args []string, stdout io.Writer, collect preflightCollector, openExecutor func(context.Context, string, string) (installer.ActionExecutor, io.Closer, error)) error {
+func runInstallApply(args []string, stdout io.Writer, collect preflightCollector, openExecutor func(context.Context, installApplyOptions) (installer.ActionExecutor, io.Closer, error)) error {
 	options, err := parseInstallApplyOptions(args)
 	if err != nil {
 		return err
@@ -57,10 +70,10 @@ func runInstallApply(args []string, stdout io.Writer, collect preflightCollector
 		return fmt.Errorf("install plan has blocking preflight failures")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	executor, closer, err := openExecutor(ctx, options.databaseURL, string(plan.WebServer))
+	executor, closer, err := openExecutor(ctx, options)
 	if err != nil {
 		return err
 	}
@@ -80,11 +93,18 @@ func runInstallApply(args []string, stdout io.Writer, collect preflightCollector
 	}
 
 	fmt.Fprintf(stdout, "web_server: %s\n", plan.WebServer)
-	fmt.Fprintln(stdout, "Installer persisted the selected web server as an immutable server setting.")
+	if options.adminEmail != "" {
+		fmt.Fprintf(stdout, "admin: %s\n", options.adminEmail)
+	}
+	fmt.Fprintln(stdout, "Motekar Panel installed.")
 	return nil
 }
 
 func parseInstallApplyOptions(args []string) (installApplyOptions, error) {
+	return parseInstallApplyOptionsFromReader(args, os.Stdin)
+}
+
+func parseInstallApplyOptionsFromReader(args []string, stdin io.Reader) (installApplyOptions, error) {
 	flags := flag.NewFlagSet("install apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 
@@ -96,6 +116,16 @@ func parseInstallApplyOptions(args []string) (installApplyOptions, error) {
 	flags.StringVar(&postgresqlValue, "postgresql", string(preflight.PostgreSQLPlanInstall), "PostgreSQL plan: install or external")
 	flags.BoolVar(&options.sample, "sample", false, "use built-in sample facts")
 	flags.StringVar(&options.databaseURL, "database-url", "", "PostgreSQL connection URL (defaults to MOTEKAR_DATABASE_URL)")
+	flags.StringVar(&options.binDir, "bin-dir", "/usr/local/bin", "directory where panel and agent binaries live")
+	flags.StringVar(&options.etcDir, "etc-dir", "/etc/motekar-panel", "directory for panel and agent environment files")
+	flags.StringVar(&options.systemdDir, "systemd-dir", "/etc/systemd/system", "directory for systemd unit files")
+	flags.StringVar(&options.agentSocket, "agent-socket", "/run/motekar-panel/agent.sock", "agent Unix socket path")
+	flags.StringVar(&options.panelAddr, "panel-addr", ":8080", "panel HTTP listen address")
+	flags.StringVar(&options.environment, "environment", "production", "runtime environment label")
+	flags.StringVar(&options.adminEmail, "admin-email", "", "first admin email")
+	flags.StringVar(&options.adminDisplayName, "admin-display-name", "", "first admin display name")
+	flags.BoolVar(&options.adminPasswordStdin, "admin-password-stdin", false, "read the first admin password from stdin")
+	flags.BoolVar(&options.noSystemd, "no-systemd", false, "do not install systemd services (development only)")
 
 	if err := flags.Parse(args); err != nil {
 		return installApplyOptions{}, err
@@ -114,28 +144,69 @@ func parseInstallApplyOptions(args []string) (installApplyOptions, error) {
 	}
 	options.profile = profile
 	options.postgresqlPlan = postgresqlPlan
+
+	if options.adminEmail != "" && options.adminPasswordStdin {
+		password, err := readInstallAdminPassword(stdin)
+		if err != nil {
+			return installApplyOptions{}, err
+		}
+		options.adminPassword = password
+	}
 	return options, nil
 }
 
-func openInstallExecutor(ctx context.Context, databaseURL, webServer string) (installer.ActionExecutor, io.Closer, error) {
+func readInstallAdminPassword(stdin io.Reader) (string, error) {
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", err
+	}
+	password := strings.TrimRight(string(raw), "\r\n")
+	if password == "" {
+		return "", fmt.Errorf("admin password cannot be empty")
+	}
+	return password, nil
+}
+
+func openInstallExecutor(ctx context.Context, options installApplyOptions) (installer.ActionExecutor, io.Closer, error) {
 	cfg, err := config.LoadPanel()
 	if err != nil {
 		return nil, nil, err
 	}
-	url := databaseURL
+	url := options.databaseURL
 	if url == "" {
 		url = cfg.DatabaseURL
 	}
-	if url == "" {
-		return nil, nil, fmt.Errorf("database URL is required; pass --database-url or set MOTEKAR_DATABASE_URL")
+
+	openDB := database.OpenPostgres
+	if options.noSystemd {
+		if url == "" {
+			return nil, nil, fmt.Errorf("database URL is required; pass --database-url or set MOTEKAR_DATABASE_URL")
+		}
+		// Keep the previous single-action behavior for development tests.
+		db, err := database.OpenPostgres(ctx, url)
+		if err != nil {
+			return nil, nil, err
+		}
+		webServerService := settings.NewWebServerService(settings.NewSQLStore(db)).
+			WithAudit(audit.NewWriter(audit.NewSQLStore(db)))
+		return installer.WebServerExecutor{Service: webServerService, Value: options.webServer}, db, nil
 	}
-	db, err := database.OpenPostgres(ctx, url)
-	if err != nil {
-		return nil, nil, err
-	}
-	webServerService := settings.NewWebServerService(settings.NewSQLStore(db)).
-		WithAudit(audit.NewWriter(audit.NewSQLStore(db)))
-	return installer.WebServerExecutor{Service: webServerService, Value: webServer}, db, nil
+
+	fullInstaller := installer.NewFullInstaller(nil, openDB, migrations.FS)
+	fullInstaller.Profile = options.profile
+	fullInstaller.WebServer = options.webServer
+	fullInstaller.PostgreSQLPlan = options.postgresqlPlan
+	fullInstaller.DatabaseURL = url
+	fullInstaller.BinDir = options.binDir
+	fullInstaller.EtcDir = options.etcDir
+	fullInstaller.SystemdDir = options.systemdDir
+	fullInstaller.AgentSocketPath = options.agentSocket
+	fullInstaller.PanelAddr = options.panelAddr
+	fullInstaller.Environment = options.environment
+	fullInstaller.AdminEmail = options.adminEmail
+	fullInstaller.AdminDisplayName = options.adminDisplayName
+	fullInstaller.AdminPassword = options.adminPassword
+	return fullInstaller, fullInstaller, nil
 }
 
 func installApplyCommand(args []string) error {
