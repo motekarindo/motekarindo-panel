@@ -13,6 +13,7 @@ type PanelConfig struct {
 	MigrationsDir   string
 	Environment     string
 	LogLevel        string
+	SecureCookies   bool
 }
 
 type AgentConfig struct {
@@ -37,6 +38,7 @@ func loadPanel(getenv func(string) string) (PanelConfig, error) {
 		MigrationsDir:   strings.TrimSpace(getenv("MOTEKAR_MIGRATIONS_DIR")),
 		Environment:     value(getenv, "MOTEKAR_ENV", "development"),
 		LogLevel:        value(getenv, "MOTEKAR_LOG_LEVEL", "info"),
+		SecureCookies:   boolValue(getenv, "MOTEKAR_SECURE_COOKIES", false),
 	}
 
 	if cfg.HTTPAddr == "" {
@@ -66,4 +68,19 @@ func value(getenv func(string) string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func boolValue(getenv func(string) string, key string, fallback bool) bool {
+	raw := strings.TrimSpace(getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

@@ -133,6 +133,7 @@ Expected response shape:
 | `MOTEKAR_MIGRATIONS_DIR` | `services/migrations` | SQL migration directory |
 | `MOTEKAR_ENV` | `development` | Runtime environment label |
 | `MOTEKAR_LOG_LEVEL` | `info` | Structured log level |
+| `MOTEKAR_SECURE_COOKIES` | `false` | Set `1`/`true` to send Secure cookies and require HTTPS same-origin for auth requests. The installer keeps this off until TLS termination is configured for the panel. |
 
 ## Database Migrations
 
@@ -208,7 +209,7 @@ curl -i -c /tmp/motekar-cookies.txt \
   http://127.0.0.1:8080/login
 ```
 
-A successful login returns `303 See Other` and sets `motekar_session` with `HttpOnly` and `SameSite=Lax`. When `MOTEKAR_ENV=production`, the cookie also uses `Secure` and auth responses include HSTS. Only a SHA-256 hash of the random token is stored in PostgreSQL, and sessions expire after 24 hours.
+A successful login returns `303 See Other` and sets `motekar_session` with `HttpOnly` and `SameSite=Lax`. When `MOTEKAR_SECURE_COOKIES=1`, the cookie also uses `Secure` and auth responses include HSTS, and the same-origin check requires an `https` Origin/Referer. Only a SHA-256 hash of the random token is stored in PostgreSQL, and sessions expire after 24 hours.
 
 Log out with:
 

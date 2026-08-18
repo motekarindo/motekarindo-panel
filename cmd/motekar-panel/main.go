@@ -170,7 +170,7 @@ func serve() error {
 		AuditError: func(err error) {
 			log.Error("audit event write failed", "error", err.Error())
 		},
-		SecureCookies: cfg.Environment == "production",
+		SecureCookies: cfg.SecureCookies,
 		Ready: func(ctx context.Context) error {
 			if err := db.PingContext(ctx); err != nil {
 				return fmt.Errorf("database unavailable: %w", err)

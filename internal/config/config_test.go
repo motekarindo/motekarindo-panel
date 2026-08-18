@@ -22,6 +22,35 @@ func TestLoadPanelDefaults(t *testing.T) {
 	if cfg.AgentSocketPath != ".cache/motekar-agent.sock" {
 		t.Fatalf("AgentSocketPath = %q, want .cache/motekar-agent.sock", cfg.AgentSocketPath)
 	}
+	if cfg.SecureCookies {
+		t.Fatalf("SecureCookies = true, want false by default")
+	}
+}
+
+func TestLoadPanelSecureCookiesOverride(t *testing.T) {
+	values := map[string]string{
+		"MOTEKAR_SECURE_COOKIES": "1",
+	}
+	cfg, err := loadPanel(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatalf("load panel config: %v", err)
+	}
+	if !cfg.SecureCookies {
+		t.Fatalf("SecureCookies = false, want true")
+	}
+}
+
+func TestBoolValue(t *testing.T) {
+	values := map[string]string{
+		"MOTEKAR_SECURE_COOKIES": "yes",
+	}
+	cfg, err := loadPanel(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatalf("load panel config: %v", err)
+	}
+	if !cfg.SecureCookies {
+		t.Fatalf("SecureCookies = false, want true for yes")
+	}
 }
 
 func TestLoadPanelOverrides(t *testing.T) {

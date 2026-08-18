@@ -218,7 +218,7 @@ After that foundation is stable, product features can be added as vertical slice
 
 **Description:** Add login, logout, secure cookies, and session storage.
 
-**Status:** Completed with hashed database session tokens, generic invalid-credential handling, bounded login throttling, production-only secure cookies, and logout invalidation.
+**Status:** Completed with hashed database session tokens, generic invalid-credential handling, bounded login throttling, opt-in secure cookies (`MOTEKAR_SECURE_COOKIES`, decoupled from the environment label), and logout invalidation.
 
 **Acceptance criteria:**
 
