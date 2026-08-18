@@ -1,6 +1,6 @@
-# Manual VPS Test 2: Install Apply and Inventory
+# Manual VPS Test 2: One-Shot Install Apply and Inventory
 
-This test verifies the actual installer apply path and the inventory dashboard on a disposable Ubuntu 24.04 VPS.
+This test verifies the full installer apply path (PostgreSQL, web server, binaries, systemd services, database migrate, first admin) and the inventory dashboard on a disposable Ubuntu 24.04 VPS.
 
 Do not use an important server. Use a fresh VPS that can be rebuilt.
 
@@ -9,14 +9,13 @@ Do not use an important server. Use a fresh VPS that can be rebuilt.
 This test is allowed to:
 
 - Run preflight and an installer dry-run plan.
-- Run `motekarctl install apply` against a disposable PostgreSQL database.
+- Run `--apply` through the end-user bootstrapper, which installs PostgreSQL, Nginx/Apache, the panel/agent binaries, systemd services, runs migrations, and bootstraps the first admin.
 - Persist and verify the immutable `settings.webserver` server setting and its audit events.
 - Run the panel and agent and inspect the server inventory dashboard.
 
 This test must not:
 
-- Actually install PostgreSQL, Nginx/Apache, or systemd services (installer executors for those do not exist yet).
-- Point at production or important data.
+- Run on production or important data.
 
 ## VPS Requirement
 
@@ -25,16 +24,10 @@ This test must not:
 
 ## Setup
 
-Build the binaries and copy them to the VPS, or use the release flow. From the repository checkout:
+For a release-based run, no setup is needed beyond the bootstrapper itself (it downloads all three binaries and verifies checksums). For a development run, build the three binaries for linux/amd64 and copy them to the VPS:
 
 ```bash
 make build
-scp .cache/motekarctl-linux-amd64 2>/dev/null || scp dist/motekarctl-linux-amd64 root@VPS:/tmp/motekarctl 2>/dev/null
-```
-
-If no release binary exists yet, build `motekarctl`, `motekar-panel`, and `motekar-agent` for linux/amd64 and copy them over:
-
-```bash
 GOOS=linux GOARCH=amd64 go build -o /tmp/motekarctl ./cmd/motekarctl
 GOOS=linux GOARCH=amd64 go build -o /tmp/motekar-panel ./cmd/motekar-panel
 GOOS=linux GOARCH=amd64 go build -o /tmp/motekar-agent ./cmd/motekar-agent
@@ -58,60 +51,80 @@ Expected:
 
 - Script runs as root and accepts Ubuntu 24.04 amd64.
 - Download verifies the checksum (`motekarctl: OK`) when pulling from Releases.
-- `--apply` is refused with `--apply is not available yet; this bootstrapper is dry-run only`.
 - Preflight reports PASS for os/cpu/disk/root/systemd/ports and either PASS or WARN for memory and swap (single-user minimums: 960 MB RAM and 1 GB swap; recommendation is 2 GB).
 - Plan prints `WOULD_CHANGE` actions and ends with `No changes were made.`
+- No system packages are installed and no files are written.
 
-## Step 2: Disposable PostgreSQL
+## Step 2: One-Shot Apply (Tasks 4.0-4.3)
 
-Install PostgreSQL on the VPS or use an existing disposable instance, then create a test database and user. For a quick local install:
+Run the full install through the bootstrapper. This installs PostgreSQL, the web server, the panel/agent binaries, writes systemd services, runs the embedded migrations, and bootstraps the first admin.
+
+Release run (downloads all binaries and prompts for admin credentials):
 
 ```bash
-apt-get update && apt-get install -y postgresql
-sudo -u postgres psql -c "CREATE USER motekar WITH PASSWORD 'motekar';"
-sudo -u postgres psql -c "CREATE DATABASE motekar_vps_test OWNER motekar;"
+./install-ubuntu-24.04-amd64.sh --apply \
+  --profile single-user \
+  --web-server nginx \
+  --postgresql install
 ```
 
-Migrate the schema manually (the `database.migrate` install action is not implemented yet):
+Development run (uses locally built binaries from a directory, non-interactive):
 
 ```bash
-export MOTEKAR_DATABASE_URL="postgres://motekar:motekar@127.0.0.1:5432/motekar_vps_test?sslmode=disable"
-/tmp/motekar-panel migrate up
-```
+mkdir -p /tmp/devbin
+cp /tmp/motekarctl /tmp/devbin/motekarctl-linux-amd64
+cp /tmp/motekar-panel /tmp/devbin/motekar-panel-linux-amd64
+cp /tmp/motekar-agent /tmp/devbin/motekar-agent-linux-amd64
 
-## Step 3: Installer Apply (Task 4.3)
-
-Run the actual apply path with the same database URL:
-
-```bash
-/tmp/motekarctl install apply \
+./install-ubuntu-24.04-amd64.sh --apply \
   --profile single-user \
   --web-server nginx \
   --postgresql install \
-  --database-url "$MOTEKAR_DATABASE_URL"
+  --local-binary-dir /tmp/devbin \
+  --bin-dir /usr/local/bin \
+  --admin-email owner@example.com \
+  --admin-display-name "Owner" \
+  --admin-password "vps-test-password-123"
 ```
 
 Expected:
 
-- Output lists 5 skipped actions: `preflight.verify`, `postgresql.install`, `webserver.install`, `database.migrate`, `systemd.services`.
-- Output ends with `web_server: nginx` and the persistence confirmation.
-- Database now has a `server_settings` row with immutable `web_server` = `nginx`, and an audit event `settings.web_server.selected`.
+- The three binaries are installed under `/usr/local/bin`.
+- `apt-get` installs PostgreSQL and Nginx; both are enabled.
+- PostgreSQL role `motekar` and database `motekar_panel` are created with a generated password.
+- Environment files are written to `/etc/motekar-panel/panel.env` and `agent.env` (mode 0600).
+- Unit files `motekar-panel.service` and `motekar-agent.service` are written to `/etc/systemd/system` and both are enabled and started.
+- The embedded migrations run and create the schema.
+- The first admin `owner@example.com` is created.
+- Output ends with `Motekar Panel installed.` and the panel URL.
+- No `skipped ... action(s) not yet supported` line is printed.
 
-Verify the setting and audit rows:
+Verify installed state:
 
 ```bash
-sudo -u postgres psql -d motekar_vps_test -c "SELECT key, value, is_immutable FROM server_settings WHERE key = 'web_server';"
-sudo -u postgres psql -d motekar_vps_test -c "SELECT action, metadata FROM audit_events ORDER BY created_at DESC LIMIT 3;"
+systemctl status motekar-panel motekar-agent --no-pager
+curl http://127.0.0.1:8080/readyz
+sudo -u postgres psql -d motekar_panel -c "SELECT key, value, is_immutable FROM server_settings WHERE key = 'web_server';"
+sudo -u postgres psql -d motekar_panel -c "SELECT action, metadata FROM audit_events ORDER BY created_at DESC LIMIT 3;"
 ```
 
-Test immutability: a second apply with a different web server must fail and be audited:
+Expected:
+
+- Both services are `active (running)`.
+- `/readyz` returns ready.
+- `server_settings` has an immutable `web_server` = `nginx`, and an audit event `settings.web_server.selected`.
+
+## Step 3: Immutability and Idempotency
+
+Run `motekarctl install apply` directly with a different web server:
 
 ```bash
-/tmp/motekarctl install apply \
+/usr/local/bin/motekarctl install apply \
   --profile single-user \
   --web-server apache \
   --postgresql install \
-  --database-url "$MOTEKAR_DATABASE_URL"
+  --admin-email owner@example.com \
+  --admin-password-stdin <<< 'vps-test-password-123'
 ```
 
 Expected: apply fails (`web server is already selected: nginx`) and the database records `settings.web_server.change_denied` with metadata `{"value":"apache","current":"nginx"}`.
@@ -119,54 +132,30 @@ Expected: apply fails (`web server is already selected: nginx`) and the database
 Test idempotency: applying the same value again is currently expected to fail too, because the setting is already immutable and `Select` rejects any subsequent write regardless of value. Verify the actual behavior and record it:
 
 ```bash
-/tmp/motekarctl install apply \
+/usr/local/bin/motekarctl install apply \
   --profile single-user \
   --web-server nginx \
   --postgresql install \
-  --database-url "$MOTEKAR_DATABASE_URL"
+  --admin-email owner@example.com \
+  --admin-password-stdin <<< 'vps-test-password-123'
 ```
 
 Expected: apply fails (`web server is already selected: nginx`) and the database records `settings.web_server.change_denied`. If the same-value apply instead succeeds, note that divergence from `internal/settings/webserver.go` in the verification record.
 
 ## Step 4: Panel, Agent, and Inventory (Task 4.4)
 
-Start the agent:
+Both services are already running from Step 2. Verify the agent reports `server.inventory`:
 
 ```bash
-mkdir -p /var/run/motekar-panel
-MOTEKAR_AGENT_SOCKET=/var/run/motekar-panel/agent.sock /tmp/motekar-agent serve &
-```
-
-Verify the agent reports `server.inventory`:
-
-```bash
-curl --unix-socket /var/run/motekar-panel/agent.sock http://agent/capabilities
-curl --unix-socket /var/run/motekar-panel/agent.sock \
+curl --unix-socket /run/motekar-panel/agent.sock http://agent/capabilities
+curl --unix-socket /run/motekar-panel/agent.sock \
   -X POST http://agent/actions/server.inventory \
   -H 'Content-Type: application/json' -d '{"payload":{}}'
 ```
 
-Start the panel:
+Log in and open the inventory dashboard:
 
 ```bash
-MOTEKAR_DATABASE_URL="$MOTEKAR_DATABASE_URL" \
-MOTEKAR_AGENT_SOCKET=/var/run/motekar-panel/agent.sock \
-MOTEKAR_PANEL_ADDR=127.0.0.1:8080 \
-/tmp/motekar-panel serve &
-```
-
-Bootstrap the first admin:
-
-```bash
-printf '%s\n' 'vps-test-password-123' | \
-  MOTEKAR_DATABASE_URL="$MOTEKAR_DATABASE_URL" /tmp/motekar-panel bootstrap admin \
-    --email owner@example.com --display-name "Owner" --password-stdin
-```
-
-Check readiness, log in, and open the inventory dashboard:
-
-```bash
-curl http://127.0.0.1:8080/readyz
 curl -i -c /tmp/motekar-cookies.txt \
   -H 'Origin: http://127.0.0.1:8080' \
   --data-urlencode 'email=owner@example.com' \
@@ -179,16 +168,23 @@ Expected on the Ubuntu host:
 
 - `/readyz` returns ready.
 - `/inventory` shows agent `online` with real values: OS `ubuntu 24.04`, kernel, CPU cores, RAM, swap, disk free, load, uptime, interface addresses, and systemd service units.
-- Web server card shows `nginx` from the immutable setting persisted in Step 3.
+- Web server card shows `nginx` from the immutable setting persisted in Step 2.
 - A non-admin account (or no session) gets `403` on `/inventory`.
 
-Stop the agent, then reload `/inventory`:
+Stop the agent service, then reload `/inventory`:
+
+```bash
+systemctl stop motekar-agent
+curl -b /tmp/motekar-cookies.txt http://127.0.0.1:8080/inventory
+```
+
+Expected:
 
 - Page still returns `200` and renders `Agent unavailable` with a clear message.
+- Restart the agent afterwards: `systemctl start motekar-agent`.
 
 ## Step 5: Cleanup
 
-- Stop the panel and agent processes.
 - Destroy the test database and the VPS.
 
 ## Verification Record

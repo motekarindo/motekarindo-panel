@@ -379,9 +379,9 @@ After that foundation is stable, product features can be added as vertical slice
 
 ### Task 4.0: Installer Bootstrapper
 
-**Description:** Add end-user Bash bootstrapper so operators can run preflight and dry-run without cloning the repository.
+**Description:** Add end-user Bash bootstrapper so operators can run preflight, dry-run, and full one-shot installation without cloning the repository.
 
-**Status:** Ubuntu 24.04 amd64 dry-run bootstrapper, release artifact pipeline, and manual VPS verification completed (re-verified 2026-08-17). Actual apply mode is pending and intentionally refused until install support exists.
+**Status:** Ubuntu 24.04 amd64 bootstrapper with real `--apply` one-shot install (binaries, PostgreSQL, web server, systemd services, database migrate, first admin), embedded migrations, release artifact pipeline, and fake-binary installer tests completed. Manual VPS install verification pending.
 
 **Acceptance criteria:**
 
@@ -390,16 +390,18 @@ After that foundation is stable, product features can be added as vertical slice
 - [x] Script supports `single-user` and `shared-hosting` profiles.
 - [x] Script supports Nginx/Apache immutable web server selection.
 - [x] Script runs preflight and install plan through `motekarctl`.
-- [x] Script refuses `--apply` until actual install support exists.
+- [x] `--apply` installs Motekar Panel end to end (PostgreSQL, web server, panel, agent, systemd services, first admin).
+- [x] Migrations are embedded into the panel binary and applied during install.
+- [x] Installer prompts for first admin credentials interactively.
 - [x] Release process publishes the script and `motekarctl-linux-amd64`.
 - [x] Script verifies release checksums by default.
 - [x] Release process publishes `motekar-panel-linux-amd64` and `motekar-agent-linux-amd64`.
 
 **Verification:**
 
-- [x] `make test-installers` passes with fake `motekarctl`.
+- [x] `make test-installers` passes with fake `motekarctl` (dry-run and apply).
 - [x] `make test-release-artifacts` passes and verifies checksums.
-- [x] Manual test downloads script from GitHub Releases on disposable Ubuntu 24.04 VPS.
+- [ ] Manual test runs `--apply` on a disposable Ubuntu 24.04 VPS and reaches the panel login.
 
 **Dependencies:** Task 4.2.
 
