@@ -122,9 +122,13 @@ exit 0
 EOF
 chmod +x "$fake_tmux"
 
+run_in_pty() {
+  python3 -c 'import pty, sys; pty.spawn(sys.argv[1:])' "$@"
+}
+
 tmux_output="${tmp_dir}/tmux.out"
 FAKE_TMUX_LOG="$tmux_log" PATH="${tmp_dir}:$PATH" \
-  script -q /dev/null \
+  run_in_pty \
   "$installer" --apply \
     --skip-os-check \
     --skip-root-check \
@@ -147,7 +151,7 @@ tmux_disabled_log="${tmp_dir}/tmux-disabled.log"
 : >"$tmux_disabled_log"
 tmux_disabled_output="${tmp_dir}/tmux-disabled.out"
 FAKE_TMUX_LOG="$tmux_disabled_log" PATH="${tmp_dir}:$PATH" \
-  script -q /dev/null \
+  run_in_pty \
   "$installer" --apply \
     --skip-os-check \
     --skip-root-check \
