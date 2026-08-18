@@ -67,7 +67,7 @@ const (
 
 func NewFullInstaller(runner CommandRunner, openDB func(context.Context, string) (*sql.DB, error), migrations fs.FS) *FullInstaller {
 	if runner == nil {
-		runner = execCommandRunner{}
+		runner = newExecCommandRunner()
 	}
 	if migrations == nil {
 		migrations = os.DirFS(filepath.Clean("services/migrations"))
@@ -133,7 +133,7 @@ func (i *FullInstaller) setExternalDatabase(ctx context.Context) error {
 func (i *FullInstaller) installPostgres(ctx context.Context) error {
 	commands := [][]string{
 		{"apt-get", "update"},
-		{"apt-get", "install", "-y", "postgresql"},
+		{"apt-get", "install", "-y", "-o", "Dpkg::Progress-Fancy=0", "postgresql"},
 		{"systemctl", "enable", "--now", "postgresql"},
 	}
 	for _, command := range commands {
@@ -192,7 +192,7 @@ func (i *FullInstaller) installWebServer(ctx context.Context) error {
 		packageName = "apache2"
 	}
 	commands := [][]string{
-		{"apt-get", "install", "-y", packageName},
+		{"apt-get", "install", "-y", "-o", "Dpkg::Progress-Fancy=0", packageName},
 		{"systemctl", "enable", "--now", packageName},
 	}
 	for _, command := range commands {

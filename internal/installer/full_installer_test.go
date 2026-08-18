@@ -141,7 +141,7 @@ func TestFullInstallerInstallsSelectedWebServer(t *testing.T) {
 
 	installedApache := false
 	for _, call := range runner.calls {
-		if call[0] == "apt-get" && len(call) >= 4 && call[3] == "apache2" {
+		if call[0] == "apt-get" && call[1] == "install" && contains(call, "apache2") {
 			installedApache = true
 		}
 	}
@@ -275,6 +275,15 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(content)
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 var _ settings.WebServer
