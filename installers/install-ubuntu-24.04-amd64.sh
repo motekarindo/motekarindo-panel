@@ -231,18 +231,18 @@ find_binary() {
     tmp_dir="$(mktemp -d)"
   fi
   local target="${tmp_dir}/${name}"
-  log "downloading ${name} from ${download_base_url}/${name}"
+  log "downloading ${name} from ${download_base_url}/${name}" >&2
   curl -fsSL "${download_base_url}/${name}" -o "$target"
   chmod 0755 "$target"
   if [ "$verify_checksum" = "1" ]; then
     command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required for checksum verification"
-    log "verifying ${name} checksum"
+    log "verifying ${name} checksum" >&2
     curl -fsSL "${download_base_url}/${name}.sha256" -o "${tmp_dir}/${name}.sha256"
     expected_checksum="$(awk '{print $1}' "${tmp_dir}/${name}.sha256")"
     [ -n "$expected_checksum" ] || fail "checksum file for ${name} is empty"
     (
       cd "$tmp_dir"
-      printf '%s  %s\n' "$expected_checksum" "$name" | sha256sum -c -
+      printf '%s  %s\n' "$expected_checksum" "$name" | sha256sum -c - >&2
     )
   fi
   printf '%s' "$target"

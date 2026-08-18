@@ -72,4 +72,45 @@ if "$installer" \
 fi
 grep -q 'requires MOTEKAR_DATABASE_URL' "$external_output"
 
+download_www="${tmp_dir}/www"
+download_deploy="${tmp_dir}/deploy2"
+mkdir -p "$download_www"
+for name in motekarctl-linux-amd64 motekar-panel-linux-amd64 motekar-agent-linux-amd64; do
+  cp "$fake_motekarctl" "${download_www}/${name}"
+  chmod +x "${download_www}/${name}"
+  (
+    cd "$download_www"
+    if command -v sha256sum >/dev/null 2>&1; then
+      checksum_cmd="sha256sum"
+    else
+      checksum_cmd="shasum -a 256"
+    fi
+    $checksum_cmd "$name" > "$name.sha256"
+  )
+done
+python3 -m http.server 18923 --directory "$download_www" >/dev/null 2>&1 &
+server_pid=$!
+trap 'rm -rf "$tmp_dir"; kill "$server_pid" 2>/dev/null' EXIT
+sleep 1
+
+download_output="${tmp_dir}/download.out"
+"$installer" \
+  --apply \
+  --skip-os-check \
+  --skip-root-check \
+  --download-url "http://127.0.0.1:18923" \
+  --bin-dir "$download_deploy" \
+  --profile single-user \
+  --web-server nginx \
+  --postgresql install \
+  --admin-email owner@example.com \
+  --admin-display-name "Owner" \
+  --admin-password "correct-horse-battery" \
+  >"$download_output" 2>&1
+
+grep -q 'Motekar Panel installed' "$download_output"
+test -x "${download_deploy}/motekarctl"
+test -x "${download_deploy}/motekar-panel"
+test -x "${download_deploy}/motekar-agent"
+
 printf 'all installer tests passed\n'
